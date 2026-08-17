@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    VANTIX icon: heart shape with ECG/heartbeat line running through the centre.
+    Inspired by the user's reference — bold silhouette readable at 22 dp.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!--
+        Heart outline path.
+        The heart sits on the full 24×24 canvas. The ECG spike is cut out of it
+        by drawing over it in the background colour, so the result is a heart
+        silhouette with a transparent heartbeat channel through the middle.
+        We draw both shapes in a single filled path instead, tracing the outer
+        heart boundary and the inner ECG cutout as a compound path.
+    -->
+
+    <!-- Solid heart -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M12,21
+          C12,21 2,14 2,7.5
+          A4.5,4.5 0,0,1 11,6
+          L12,8
+          L13,6
+          A4.5,4.5 0,0,1 22,7.5
+          C22,14 12,21 12,21 Z
+        " />
+
+    <!-- ECG / heartbeat cutout — drawn in black to punch through the heart -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="
+          M3.5,12
+          L7,12
+          L9,9
+          L11,15
+          L13,10
+          L14.5,12
+          L20.5,12
+        " />
+
+</vector>

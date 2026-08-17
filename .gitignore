@@ -1,0 +1,63 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+build/
+app/build/
+.gradle/
+.navigation/
+
+# Gradle files
+.gradle/
+build/
+
+# Local configuration file (sdk path, api keys, local variables)
+local.properties
+
+# Android Studio & IntelliJ IDEA files
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# macOS files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Log files
+*.log
+
+# Keystore / Secrets
+*.jks
+*.keystore
+secrets.properties
+private.properties
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# On-device model weight downloads if any local cache
+*.bin
+*.tflite
+*.task

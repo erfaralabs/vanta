@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="280dp"
+    android:height="120dp"
+    android:viewportWidth="280"
+    android:viewportHeight="120">
+
+    <!-- Dark Surface Container -->
+    <path
+        android:fillColor="#0A0A0A"
+        android:pathData="M20,0 L260,0 A20,20 0 0 1 280,20 L280,100 A20,20 0 0 1 260,120 L20,120 A20,20 0 0 1 0,100 L0,20 A20,20 0 0 1 20,0 Z" />
+
+    <!-- Dividers -->
+    <path
+        android:pathData="M93,30 L93,90 M186,30 L186,90"
+        android:strokeColor="#26FFFFFF"
+        android:strokeWidth="1.5" />
+
+</vector>

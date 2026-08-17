@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="140dp"
+    android:minHeight="50dp"
+    android:minResizeWidth="140dp"
+    android:minResizeHeight="50dp"
+    android:maxResizeWidth="180dp"
+    android:maxResizeHeight="70dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_daily_summary"
+    android:previewLayout="@layout/widget_daily_summary"
+    android:previewImage="@drawable/widget_preview_daily_summary"
+    android:resizeMode="none"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_daily_summary_description" />

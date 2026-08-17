@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"
+    android:opacity="opaque">
+
+    <!-- Pure black background -->
+    <item android:drawable="@color/ic_launcher_background" />
+
+    <!-- Centred logo -->
+    <item
+        android:gravity="center"
+        android:width="180dp"
+        android:height="180dp"
+        android:drawable="@drawable/splash_logo" />
+
+</layer-list>

@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">Vanta</string>
+    <string name="widget_quick_score_description">1x1 Quick Score view for Strain, Recovery, or Energy.</string>
+    <string name="widget_daily_summary_description">2x1 Daily Summary showing Strain, Recovery, and Energy.</string>
+    <string name="widget_core_description">2x2 VANTA Core flagship widget with triple rings and live telemetry.</string>
+
+    <!-- Recovery Offline Fallback Templates -->
+    <string name="recovery_template_above_baseline">Recovery\'s at %1$d%% — %2$d%% above your usual. Good day to push.</string>
+    <string name="recovery_template_near_baseline">Recovery\'s steady at %1$d%%, right around your normal range of %2$d%%.</string>
+    <string name="recovery_template_below_baseline">Recovery\'s a bit lower than usual at %1$d%% (%2$d%% under norm). Consider an easier day.</string>
+    <string name="recovery_template_well_below_baseline">Recovery\'s well below your normal at %1$d%% (%2$d%% under norm). Prioritize rest today.</string>
+
+    <!-- Strain Offline Fallback Templates -->
+    <string name="strain_template_high">Strain is high at %1$.1f / 21.0 (%2$.1f above target). Protect your recovery tonight.</string>
+    <string name="strain_template_moderate">Strain is sitting at %1$.1f / 21.0, right on track with your target of %2$.1f.</string>
+    <string name="strain_template_light">Strain is at %1$.1f / 21.0 (%2$.1f under target). You have room for a structured session.</string>
+    <string name="strain_template_low">Strain is light at %1$.1f / 21.0 so far. Plenty of capacity remaining today.</string>
+
+    <!-- Energy Offline Fallback Templates -->
+    <string name="energy_template_high">Energy is high at %1$d%% — %2$d%% above baseline. Prime window for exertion.</string>
+    <string name="energy_template_ready">Energy is steady at %1$d%%, right around your average of %2$d%%.</string>
+    <string name="energy_template_moderate">Energy sits at %1$d%% (%2$d%% below baseline). Keep your output measured.</string>
+    <string name="energy_template_low">Energy is low at %1$d%%. Focus on light movement and active restoration.</string>
+</resources>
