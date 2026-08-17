@@ -64,6 +64,12 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
         const val MODEL_DISPLAY_NAME = "Gemma 4 E2B (LiteRT-LM)"
         const val ESTIMATED_SIZE_BYTES = 1_180_000_000L // ~1.18 GB
         const val MIN_MODEL_SIZE_BYTES = 500_000_000L   // >= 500 MB required for valid model
+        /**
+         * Max OUTPUT tokens for on-device generation. Applied as ConversationConfig
+         * maxOutputToken so the engine's (possibly small) default cap can never cut
+         * an insight or chat reply off mid-sentence. 512 tokens ≈ 380 words — far
+         * above the app's 40–65 word coaching lines.
+         */
         const val MAX_SEQUENCE_TOKENS = 512
 
         @Volatile
@@ -107,7 +113,7 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
 
     fun checkModelAvailability() {
         val modelFile = getModelFile(context)
-        if (modelFile.exists() && modelFile.length() >= MIN_MODEL_SIZE_BYTES) {
+        if (modelFile.exists() && modelFile.length() >= MIN_MODEL_SIZE_BYTES && !isDownloadInProgress()) {
             if (_state.value != ModelState.READY) {
                 _state.value = ModelState.DOWNLOADED
             }
@@ -117,8 +123,23 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
     }
 
     fun isModelDownloaded(): Boolean {
+        // A live/abandoned download must never be treated as a usable model:
+        // DownloadManager writes the target file in place, so a partial file can
+        // easily pass the size check mid-download or after a process restart.
+        if (isDownloadInProgress()) return false
         val modelFile = getModelFile(context)
         return modelFile.exists() && modelFile.length() >= MIN_MODEL_SIZE_BYTES
+    }
+
+    /** Persisted flag so a mid-download (or app-restart-during-download) never looks ready. */
+    fun isDownloadInProgress(): Boolean {
+        val prefs = context.getSharedPreferences("vanta_ai_settings", Context.MODE_PRIVATE)
+        return prefs.getBoolean("model_download_in_progress", false)
+    }
+
+    fun setDownloadInProgress(inProgress: Boolean) {
+        val prefs = context.getSharedPreferences("vanta_ai_settings", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("model_download_in_progress", inProgress).apply()
     }
 
     fun setDownloadingState() {
@@ -263,7 +284,11 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
                 topP = 0.9,
                 temperature = 0.6,
                 seed = 0
-            )
+            ),
+            // Explicit output budget: without this the LiteRT-LM default cap can
+            // truncate on-device replies ("a few words and stop"). 512 tokens lets
+            // every insight/chat response run to completion while bounding latency.
+            maxOutputToken = MAX_SEQUENCE_TOKENS
         )
     }
 
@@ -427,6 +452,19 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
                     cont.resume(null)
                 }
             }
+        }
+    }
+
+    /**
+     * Keeps the loaded engine resident for fast follow-up GPU inference, releasing
+     * it only when the device is under memory pressure. Avoids paying the expensive
+     * model-load / shader-compile cost on every insight tap.
+     */
+    fun maybeReleaseUnderMemoryPressure() {
+        val freeMb = getAvailableMemoryMb()
+        if (freeMb < 700) {
+            Log.w(TAG, "Low memory ($freeMb MB available) — releasing on-device engine.")
+            unloadEngine()
         }
     }
 

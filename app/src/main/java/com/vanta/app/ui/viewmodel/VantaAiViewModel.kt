@@ -283,6 +283,37 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
         (hasKey || hasOnDevice) && enabled
     }.stateIn(viewModelScope, SharingStarted.Eagerly, isDetailedCoachAvailable())
 
+    // ── Dedicated VANTIX AI Insight Toggle (AdaptiveCore screen) ──────────────
+    private val _isVantixEnabled = MutableStateFlow(
+        settingsPrefs.getBoolean("ai_vantix_enabled", false)
+    )
+    val isVantixEnabled: StateFlow<Boolean> = _isVantixEnabled.asStateFlow()
+
+    fun setVantixEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean("ai_vantix_enabled", enabled).apply()
+        _isVantixEnabled.value = enabled
+        if (enabled) {
+            loadVantixInsight()
+        }
+    }
+
+    fun isVantixAvailable(): Boolean {
+        val hasKey = savedApiKey().isNotBlank()
+        val hasOnDevice = onDeviceLlmManager.isModelDownloaded()
+        if (!hasKey && !hasOnDevice) return false
+        return _isVantixEnabled.value
+    }
+
+    val isVantixAvailable: StateFlow<Boolean> = combine(
+        _isVantixEnabled,
+        _apiUiState,
+        onDeviceState
+    ) { enabled, _, _ ->
+        val hasKey = savedApiKey().isNotBlank()
+        val hasOnDevice = onDeviceLlmManager.isModelDownloaded()
+        (hasKey || hasOnDevice) && enabled
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, isVantixAvailable())
+
     private val _isChatGenerating = MutableStateFlow(false)
     val isChatGenerating: StateFlow<Boolean> = _isChatGenerating.asStateFlow()
 
@@ -333,6 +364,12 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
                 ).collect { tokenChunk ->
                     currentText.append(tokenChunk)
                     chatManager.updateLastAssistantMessage(currentText.toString())
+                }
+
+                // Post-clean the finished message (strip stray JSON/fences from the stream).
+                val cleanedFinal = com.vanta.app.data.ai.CoachChatPromptSystem.sanitizeOutput(currentText.toString())
+                if (cleanedFinal != currentText.toString()) {
+                    chatManager.updateLastAssistantMessage(cleanedFinal)
                 }
             } catch (e: Throwable) {
                 android.util.Log.e("VantaAiViewModel", "Chat generation failed", e)
@@ -850,6 +887,8 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
      */
     fun loadVantixInsight() {
         val core = _userBaseline.value.adaptiveCore ?: return
+        // Respect the Vantix AI toggle: no AI call when the feature is disabled.
+        if (!isVantixAvailable()) return
         if (_vantixInsightLoading.value) return
         viewModelScope.launch(Dispatchers.IO) {
             _vantixInsightLoading.value = true

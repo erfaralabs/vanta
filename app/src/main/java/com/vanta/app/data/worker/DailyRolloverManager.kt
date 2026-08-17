@@ -63,6 +63,11 @@ class DailyRolloverManager private constructor(private val context: Context) {
             physiologyEngine.userAge = profile.calculatedAge
         }
 
+        // After onboarding / a fresh Health Connect grant, backfill up to 7 days of
+        // real Health Connect history (at most once per day while still in the
+        // learning phase) so the baseline never has to restart from "day 1".
+        backfillPastDaysIfLearning()
+
         if (lastDate == null) {
             // First run, mark previous day as baseline start if no record exists
             lastRolloverDate = today.minusDays(1).toString()
@@ -86,6 +91,44 @@ class DailyRolloverManager private constructor(private val context: Context) {
             lastRolloverDate = today.minusDays(1).toString()
             resetDailyMetrics()
             persistYesterdayStrain(today.minusDays(1).toString())
+        }
+    }
+
+    /**
+     * Backfills up to 7 days of real Health Connect history into Room DB so the
+     * 7-day baseline never has to start from "day 1" after onboarding or a fresh
+     * Health Connect grant. Runs at most once per day and only while the baseline
+     * is still in the learning phase; days already archived are skipped, and days
+     * with no genuine telemetry are ignored (no fake training days).
+     */
+    private suspend fun backfillPastDaysIfLearning() = withContext(Dispatchers.IO) {
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val todayStr = today.toString()
+
+        // At most one backfill attempt per day — each attempt is Health Connect reads.
+        val lastAttempt = prefs.getString("last_backfill_attempt_date", null)
+        if (lastAttempt == todayStr) return@withContext
+
+        // Not worth backfilling once a full 7-day baseline already exists.
+        val realCount = dao.getAllRecords().count { it.hasRealData() }
+        if (realCount >= 7) return@withContext
+
+        // Only run when Health Connect is actually granted. When it is NOT granted
+        // we deliberately do NOT mark today's attempt so the next rollover check
+        // (e.g. right after the user grants permission in Settings) will try again.
+        val manager = HealthConnectManager(context)
+        if (!manager.hasPermissions()) return@withContext
+
+        prefs.edit().putString("last_backfill_attempt_date", todayStr).apply()
+
+        // Archive the last 7 completed days, oldest first, skipping existing records.
+        for (daysAgo in 7 downTo 1) {
+            val dateStr = today.minusDays(daysAgo.toLong()).toString()
+            if (dao.getRecordForDate(dateStr) != null) continue
+            archiveDayRecord(dateStr)
+            // Chain strain so each backfilled day's Recovery reflects the real
+            // previous-day load (same as the normal rollover loop).
+            persistYesterdayStrain(dateStr)
         }
     }
 

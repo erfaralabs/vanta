@@ -241,6 +241,7 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
                     .putBoolean("ai_daily_analysis_enabled", false)
                     .putBoolean("ai_chat_enabled", false)
                     .putBoolean("ai_detailed_coach_enabled", false)
+                    .putBoolean("ai_vantix_enabled", false)
                     .apply()
 
                 _uiState.value = _uiState.value.copy(

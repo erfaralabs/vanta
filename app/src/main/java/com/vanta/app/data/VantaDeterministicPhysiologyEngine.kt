@@ -176,8 +176,10 @@ class VantaDeterministicPhysiologyEngine(
         // Self-heal stale per-day locks: the rollover reset only runs on app start /
         // the daily worker, so if the app stays open across midnight the previous
         // day's max strain / min energy would otherwise leak into the new day.
+        // IMPORTANT: only trigger when computing TODAY — archiving a past date
+        // (rollover / Health Connect backfill) must NEVER wipe today's live locks.
         val savedLockDate = prefs.getString("locked_recovery_date", "") ?: ""
-        if (savedLockDate.isNotEmpty() && savedLockDate != targetDateStr) {
+        if (isToday && savedLockDate.isNotEmpty() && savedLockDate != targetDateStr) {
             prefs.edit()
                 .remove("today_max_strain")
                 .remove("today_min_energy")

@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -68,6 +69,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
+    onPrivacyPolicyClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -444,7 +446,6 @@ fun SettingsScreen(
                     title = "AI Coach notifications",
                     subtitle = "Master switch for all coach insights.",
                     checked = enabled,
-                    accent = NeonCyan,
                     onCheckedChange = { enabled = it; settings.enabled = it }
                 )
             }
@@ -508,7 +509,6 @@ fun SettingsScreen(
                     title = "Morning Recovery",
                     subtitle = "Daily recovery summary, once after 5 AM.",
                     checked = morningRecovery && enabled,
-                    accent = RecoveryGreen,
                     onCheckedChange = { morningRecovery = it; settings.morningRecovery = it }
                 )
                 HorizontalDivider(color = Color(0x14FFFFFF), modifier = Modifier.padding(vertical = 6.dp))
@@ -516,7 +516,6 @@ fun SettingsScreen(
                     title = "Workouts",
                     subtitle = "When a real workout session is logged.",
                     checked = workout && enabled,
-                    accent = NeonCyan,
                     onCheckedChange = { workout = it; settings.workout = it }
                 )
                 HorizontalDivider(color = Color(0x14FFFFFF), modifier = Modifier.padding(vertical = 6.dp))
@@ -524,7 +523,6 @@ fun SettingsScreen(
                     title = "Strain spikes",
                     subtitle = "Significant strain jumps of 1.5+ during the day.",
                     checked = strain && enabled,
-                    accent = StrainColor,
                     onCheckedChange = { strain = it; settings.strain = it }
                 )
                 HorizontalDivider(color = Color(0x14FFFFFF), modifier = Modifier.padding(vertical = 6.dp))
@@ -532,7 +530,6 @@ fun SettingsScreen(
                     title = "Achievements",
                     subtitle = "10k steps and training-streak milestones.",
                     checked = achievement && enabled,
-                    accent = EnergyAmber,
                     onCheckedChange = { achievement = it; settings.achievement = it }
                 )
                 HorizontalDivider(color = Color(0x14FFFFFF), modifier = Modifier.padding(vertical = 6.dp))
@@ -540,7 +537,6 @@ fun SettingsScreen(
                     title = "Weekly summary",
                     subtitle = "A short recap every 7 days.",
                     checked = weekly && enabled,
-                    accent = NeonBlue,
                     onCheckedChange = { weekly = it; settings.weekly = it }
                 )
                 HorizontalDivider(color = Color(0x14FFFFFF), modifier = Modifier.padding(vertical = 6.dp))
@@ -548,7 +544,6 @@ fun SettingsScreen(
                     title = "Morning check-in",
                     subtitle = "A warm 8:10 AM greeting with today's recovery and energy.",
                     checked = morningCheckIn && enabled,
-                    accent = RecoveryGreen,
                     onCheckedChange = {
                         morningCheckIn = it
                         settings.morningCheckIn = it
@@ -560,7 +555,6 @@ fun SettingsScreen(
                     title = "Night check-in",
                     subtitle = "A calm 9:30 PM recap of today's strain and steps.",
                     checked = nightCheckIn && enabled,
-                    accent = EnergyAmber,
                     onCheckedChange = {
                         nightCheckIn = it
                         settings.nightCheckIn = it
@@ -572,7 +566,6 @@ fun SettingsScreen(
                     title = "Goals",
                     subtitle = "When a weekly training goal is reached.",
                     checked = goals && enabled,
-                    accent = CaloriesOrange,
                     onCheckedChange = { goals = it; settings.goals = it }
                 )
             }
@@ -588,7 +581,6 @@ fun SettingsScreen(
                     title = "Heart rate insights",
                     subtitle = "Strain spikes and recovery changes are driven by HR/RHR. You're not wearing your watch daily, so this is OFF — no HR data will appear in any message.",
                     checked = heartRate && enabled,
-                    accent = HeartRateRed,
                     onCheckedChange = { heartRate = it; settings.heartRate = it }
                 )
             }
@@ -781,16 +773,7 @@ fun SettingsScreen(
                             vm.setDailyAnalysisEnabled(newVal)
                         },
                         enabled = isAiConfigured,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.Black,
-                            checkedTrackColor = NeonCyan,
-                            uncheckedThumbColor = TextTertiary,
-                            uncheckedTrackColor = Color.White.copy(alpha = 0.08f),
-                            disabledCheckedThumbColor = TextTertiary,
-                            disabledCheckedTrackColor = Color.White.copy(alpha = 0.05f),
-                            disabledUncheckedThumbColor = TextTertiary.copy(alpha = 0.5f),
-                            disabledUncheckedTrackColor = Color.White.copy(alpha = 0.03f)
-                        )
+                        colors = whiteSleekSwitchColors()
                     )
                 }
 
@@ -863,16 +846,7 @@ fun SettingsScreen(
                             vm.setAiChatEnabled(newVal)
                         },
                         enabled = isAiConfigured,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.Black,
-                            checkedTrackColor = NeonCyan,
-                            uncheckedThumbColor = TextTertiary,
-                            uncheckedTrackColor = Color.White.copy(alpha = 0.08f),
-                            disabledCheckedThumbColor = TextTertiary,
-                            disabledCheckedTrackColor = Color.White.copy(alpha = 0.05f),
-                            disabledUncheckedThumbColor = TextTertiary.copy(alpha = 0.5f),
-                            disabledUncheckedTrackColor = Color.White.copy(alpha = 0.03f)
-                        )
+                        colors = whiteSleekSwitchColors()
                     )
                 }
 
@@ -945,16 +919,59 @@ fun SettingsScreen(
                             vm.setDetailedCoachEnabled(newVal)
                         },
                         enabled = isAiConfigured,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.Black,
-                            checkedTrackColor = NeonCyan,
-                            uncheckedThumbColor = TextTertiary,
-                            uncheckedTrackColor = Color.White.copy(alpha = 0.08f),
-                            disabledCheckedThumbColor = TextTertiary,
-                            disabledCheckedTrackColor = Color.White.copy(alpha = 0.05f),
-                            disabledUncheckedThumbColor = TextTertiary.copy(alpha = 0.5f),
-                            disabledUncheckedTrackColor = Color.White.copy(alpha = 0.03f)
+                        colors = whiteSleekSwitchColors()
+                    )
+                }
+
+                // ── VANTIX AI Coach Toggle ─────────────────────────────────────
+                val isVantixToggled by vm.isVantixEnabled.collectAsState()
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isAiConfigured) Color(0xFF141414) else Color(0xFF0F0F0F))
+                        .border(
+                            width = 1.dp,
+                            color = if (isVantixToggled) NeonCyan.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.06f),
+                            shape = RoundedCornerShape(12.dp)
                         )
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .alpha(if (isAiConfigured) 1f else 0.45f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "⚡ VANTIX AI Coach",
+                            color = if (isAiConfigured) TextPrimary else TextTertiary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = if (!isAiConfigured) {
+                                "Configure an API key or on-device model to unlock"
+                            } else if (isVantixToggled) {
+                                "Enabled · AI insights on the Vantix screen"
+                            } else {
+                                "Disabled · Hidden from Vantix"
+                            },
+                            color = if (!isAiConfigured) TextTertiary else TextSecondary,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
+                    Switch(
+                        checked = isVantixToggled && isAiConfigured,
+                        onCheckedChange = { newVal ->
+                            if (!isAiConfigured) {
+                                Toast.makeText(context, "Configure an API key or download on-device model first", Toast.LENGTH_SHORT).show()
+                                return@Switch
+                            }
+                            vm.setVantixEnabled(newVal)
+                        },
+                        enabled = isAiConfigured,
+                        colors = whiteSleekSwitchColors()
                     )
                 }
 
@@ -2128,156 +2145,40 @@ fun SettingsScreen(
             }
         }
 
-        // ── DEVELOPER RESOLUTION SIMULATOR ──────────────────────────────────
-        item(key = "dev_resolution_header") {
-            Text(
-                text = "DEVELOPER VIEWPORT SIMULATOR",
-                color = TextTertiary,
-                fontSize = 12.sp,
-                letterSpacing = 2.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp)
-            )
-        }
-
-        item(key = "dev_resolution_card") {
-            val isSimEnabled = com.vanta.app.ui.dev.DevResolutionManager.isSimulatorEnabled
-            val activeRes = com.vanta.app.ui.dev.DevResolutionManager.currentResolution
-
-            GlassCard(
-                accentColor = NeonCyan,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+        // ── Privacy Policy ────────────────────────────────────────────────────
+        item(key = "privacy_policy") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF141414))
+                    .clickable {
+                        haptics.tick()
+                        onPrivacyPolicyClick()
+                    }
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Resolution & Viewport Simulator",
-                            color = TextPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "Preview Vanta on popular iPhone, Galaxy, Pixel, and Foldable screen sizes.",
-                            color = TextSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                    }
-                    Switch(
-                        checked = isSimEnabled,
-                        onCheckedChange = { enabled ->
-                            haptics.tick()
-                            com.vanta.app.ui.dev.DevResolutionManager.setSimulatorActive(context, enabled)
-                            if (enabled && activeRes == com.vanta.app.ui.dev.DevResolution.NATIVE) {
-                                com.vanta.app.ui.dev.DevResolutionManager.setResolution(
-                                    context,
-                                    com.vanta.app.ui.dev.DevResolution.GALAXY_S24
-                                )
-                            }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = NeonCyan,
-                            uncheckedThumbColor = TextTertiary,
-                            uncheckedTrackColor = Color(0xFF1A1A1A),
-                            uncheckedBorderColor = Color(0x33FFFFFF)
-                        )
-                    )
-                }
-
-                if (isSimEnabled) {
-                    Spacer(Modifier.height(14.dp))
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                    Spacer(Modifier.height(12.dp))
-
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "SELECT TARGET ANDROID MODEL",
-                        color = TextTertiary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        text = "🔒 Privacy Policy",
+                        color = TextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-
-                    Spacer(Modifier.height(10.dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        com.vanta.app.ui.dev.DevResolution.entries.forEach { res ->
-                            val isSelected = res == activeRes
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isSelected) NeonCyan.copy(alpha = 0.15f)
-                                        else Color.White.copy(alpha = 0.04f)
-                                    )
-                                    .border(
-                                        width = 1.dp,
-                                        color = if (isSelected) NeonCyan.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.06f),
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-                                    .clickable {
-                                        haptics.tick()
-                                        com.vanta.app.ui.dev.DevResolutionManager.setResolution(context, res)
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = res.modelName,
-                                                color = if (isSelected) NeonCyan else TextPrimary,
-                                                fontSize = 13.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                            )
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .background(Color.White.copy(alpha = 0.08f))
-                                                    .padding(horizontal = 5.dp, vertical = 1.dp)
-                                            ) {
-                                                Text(
-                                                    text = res.brand,
-                                                    color = TextTertiary,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = res.description,
-                                            color = TextTertiary,
-                                            fontSize = 11.sp,
-                                            modifier = Modifier.padding(top = 2.dp)
-                                        )
-                                    }
-                                    if (isSelected) {
-                                        Text(
-                                            text = "ACTIVE",
-                                            color = NeonCyan,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            letterSpacing = 1.sp
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    Text(
+                        text = "Open source · everything stays on your device",
+                        color = TextTertiary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = TextTertiary
+                )
             }
         }
 
@@ -2486,12 +2387,28 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * Single uniform white toggle style for every switch in Settings — a crisp black
+ * thumb on a solid white track when ON, dark track with gray thumb when OFF.
+ */
+@Composable
+private fun whiteSleekSwitchColors() = SwitchDefaults.colors(
+    checkedThumbColor = Color.Black,
+    checkedTrackColor = Color.White,
+    uncheckedThumbColor = Color(0xFF8E8E93),
+    uncheckedTrackColor = Color(0xFF2C2C2E),
+    uncheckedBorderColor = Color.White.copy(alpha = 0.12f),
+    disabledCheckedThumbColor = Color.Black.copy(alpha = 0.5f),
+    disabledCheckedTrackColor = Color.White.copy(alpha = 0.35f),
+    disabledUncheckedThumbColor = Color(0xFF8E8E93).copy(alpha = 0.5f),
+    disabledUncheckedTrackColor = Color(0xFF2C2C2E).copy(alpha = 0.6f)
+)
+
 @Composable
 private fun NotificationSwitchRow(
     title: String,
     subtitle: String,
     checked: Boolean,
-    accent: Color,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
@@ -2522,13 +2439,7 @@ private fun NotificationSwitchRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = accent,
-                uncheckedThumbColor = TextTertiary,
-                uncheckedTrackColor = Color(0xFF1A1A1A),
-                uncheckedBorderColor = Color(0x33FFFFFF)
-            )
+            colors = whiteSleekSwitchColors()
         )
     }
 }

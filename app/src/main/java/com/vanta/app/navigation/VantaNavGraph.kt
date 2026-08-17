@@ -45,6 +45,7 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     object AdaptiveCore   : Screen("adaptive_core",  "Vantix",     Icons.Filled.AutoAwesome)
     object HealthConnect  : Screen("health_connect", "Health SDK", Icons.Filled.Home)
     object Settings       : Screen("settings",       "Settings",   Icons.Filled.Settings)
+    object PrivacyPolicy  : Screen("privacy_policy", "Privacy",    Icons.Filled.Home)
     object PhysiologyDetail : Screen("physiology_detail", "Details", Icons.Filled.Home)
     object Breathing      : Screen("breathing",      "Breathe",    Icons.Filled.Home)
 }
@@ -76,6 +77,7 @@ fun VantaNavGraph() {
     var selectedTab by remember { mutableStateOf<Screen>(Screen.Home) }
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
     var detailMetric by remember { mutableStateOf(PhysiologyMetric.RECOVERY) }
+    var privacyOrigin by remember { mutableStateOf<Screen>(Screen.Settings) }
     var isAiChatOpen by remember { mutableStateOf(false) }
 
     // Intercept back gesture / button press so it navigates back to Home page instead of closing the app
@@ -85,6 +87,7 @@ fun VantaNavGraph() {
         if (isAiChatOpen) {
             isAiChatOpen = false
         } else if (currentScreen == Screen.HealthConnect || currentScreen == Screen.Settings ||
+            currentScreen == Screen.PrivacyPolicy ||
             currentScreen == Screen.PhysiologyDetail || currentScreen == Screen.Breathing) {
             currentScreen = selectedTab
         } else {
@@ -113,6 +116,11 @@ fun VantaNavGraph() {
                 onBackClick = {
                     haptics.tick()
                     currentScreen = selectedTab
+                },
+                onPrivacyPolicyClick = {
+                    haptics.tick()
+                    privacyOrigin = Screen.HealthConnect
+                    currentScreen = Screen.PrivacyPolicy
                 }
             )
         } else if (currentScreen == Screen.Settings) {
@@ -120,6 +128,18 @@ fun VantaNavGraph() {
                 onBackClick = {
                     haptics.tick()
                     currentScreen = selectedTab
+                },
+                onPrivacyPolicyClick = {
+                    haptics.tick()
+                    privacyOrigin = Screen.Settings
+                    currentScreen = Screen.PrivacyPolicy
+                }
+            )
+        } else if (currentScreen == Screen.PrivacyPolicy) {
+            PrivacyPolicyScreen(
+                onBackClick = {
+                    haptics.tick()
+                    currentScreen = privacyOrigin
                 }
             )
         } else if (currentScreen == Screen.PhysiologyDetail) {

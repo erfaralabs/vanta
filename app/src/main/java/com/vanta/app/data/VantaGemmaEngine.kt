@@ -130,6 +130,20 @@ class VantaGemmaEngine(private val context: Context) {
             }
             return result
         }
+
+        /**
+         * True when AI prose looks like a FINISHED response (not a truncated
+         * mid-sentence fragment). Shared by the home overview and the detail
+         * insights so every provider surfaces uniform, complete prose.
+         */
+        internal fun isCompleteProse(text: String): Boolean {
+            val t = text.trim()
+            return t.isNotBlank() &&
+                t.length >= 15 &&
+                (t.endsWith('.') || t.endsWith('!') || t.endsWith('?')) &&
+                !t.contains("{") &&
+                !t.startsWith("json", ignoreCase = true)
+        }
     }
 
     /** Result of an API-key verification call with rich diagnostics. */
@@ -341,8 +355,12 @@ class VantaGemmaEngine(private val context: Context) {
             if (onDevice.isModelDownloaded()) {
                 val fullPrompt = "$systemPrompt\n\n$userPrompt"
                 val result = onDevice.generate(fullPrompt)
-                // Discard model immediately after inference to free up RAM
-                onDevice.unloadEngine()
+                // Keep the GPU engine resident for near-instant follow-up inference;
+                // release it only under memory pressure. On-device use is already
+                // gated to >= 7 GB RAM devices, so holding ~1.2 GB is safe and
+                // avoids paying the expensive model-load / shader-compile cost on
+                // every insight tap.
+                onDevice.maybeReleaseUnderMemoryPressure()
                 return result
             } else {
                 android.util.Log.w("VantaAI", "On-device model not downloaded")
@@ -363,10 +381,15 @@ class VantaGemmaEngine(private val context: Context) {
         }
         val body = res.body ?: return null
         return try {
-            JSONObject(body)
-                .getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
+            val choice = JSONObject(body).getJSONArray("choices").getJSONObject(0)
+            val finishReason = choice.optString("finish_reason", "")
+            if (finishReason == "length") {
+                // Model hit the token cap mid-response → the text is truncated and
+                // would render as "a few words and stop". Never surface it.
+                android.util.Log.w("VantaAI", "Cloud AI response truncated by max_tokens (finish_reason=length) — using deterministic fallback")
+                return null
+            }
+            choice.getJSONObject("message")
                 .optString("content", "")
                 .ifBlank { null }
         } catch (e: Exception) {
@@ -649,28 +672,31 @@ class VantaGemmaEngine(private val context: Context) {
 
         val rawOutput = runCatching {
             withTimeoutOrNull(20_000L) {
-                generateWithProvider(prompt.system, prompt.user, apiKey ?: "", provider)
+                generateWithProvider(
+                    systemPrompt = prompt.system,
+                    userPrompt = prompt.user,
+                    apiKey = apiKey ?: "",
+                    provider = provider,
+                    maxTokens = 500
+                )
             }
         }.getOrNull()
 
         if (rawOutput != null) {
-            val cleanStr = rawOutput.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-            val jsonInsight = runCatching {
-                val obj = org.json.JSONObject(cleanStr)
-                obj.optString("insight", "").ifBlank {
-                    obj.optString("text", "").ifBlank {
-                        obj.optString("message", "")
-                    }
-                }
-            }.getOrNull()
-            val textToValidate = if (!jsonInsight.isNullOrBlank()) jsonInsight else cleanStr
-            val validated = com.vanta.app.data.ai.PhysiologyTemplateSelector.cleanAndValidateAiResponse(
-                raw = textToValidate,
-                maxWords = 50,
-                maxSentences = 3
-            ) ?: textToValidate.take(300)
+            val extracted = com.vanta.app.data.ai.PhysiologyInsightPromptSystem.extractProseFromRaw(rawOutput)
+            val validated = extracted?.let {
+                com.vanta.app.data.ai.PhysiologyTemplateSelector.cleanAndValidateAiResponse(
+                    raw = it,
+                    maxWords = 50,
+                    maxSentences = 3
+                ) ?: it.take(300)
+            }.orEmpty()
 
-            if (validated.isNotBlank()) {
+            // Reject truncated fragments that don't end in sentence punctuation.
+            val trimmedValidated = validated.trimEnd()
+            val isComplete = trimmedValidated.isNotBlank() &&
+                (trimmedValidated.endsWith('.') || trimmedValidated.endsWith('!') || trimmedValidated.endsWith('?'))
+            if (isComplete) {
                 aiDetailCache.save(
                     metricKey = cacheKey,
                     date = today,
@@ -752,19 +778,31 @@ class VantaGemmaEngine(private val context: Context) {
 
         val rawOutput = runCatching {
             withTimeoutOrNull(25_000L) {
-                generateWithProvider(prompt.system, prompt.user, apiKey ?: "", provider)
+                generateWithProvider(
+                    systemPrompt = prompt.system,
+                    userPrompt = prompt.user,
+                    apiKey = apiKey ?: "",
+                    provider = provider,
+                    maxTokens = 600
+                )
             }
         }.getOrNull()
 
         if (rawOutput != null) {
-            val sanitized = com.vanta.app.data.ai.PhysiologyInsightPromptSystem.sanitizeInsightText(rawOutput)
-            val validated = com.vanta.app.data.ai.PhysiologyTemplateSelector.cleanAndValidateAiResponse(
-                raw = sanitized,
-                maxWords = 120,
-                maxSentences = 5
-            ) ?: sanitized.take(600)
+            val extracted = com.vanta.app.data.ai.PhysiologyInsightPromptSystem.extractProseFromRaw(rawOutput)
+            val validated = extracted?.let {
+                com.vanta.app.data.ai.PhysiologyTemplateSelector.cleanAndValidateAiResponse(
+                    raw = it,
+                    maxWords = 120,
+                    maxSentences = 5
+                ) ?: it.take(600)
+            }.orEmpty()
 
-            if (validated.isNotBlank()) {
+            // Reject truncated fragments that don't end in sentence punctuation.
+            val trimmedValidated = validated.trimEnd()
+            val isComplete = trimmedValidated.isNotBlank() &&
+                (trimmedValidated.endsWith('.') || trimmedValidated.endsWith('!') || trimmedValidated.endsWith('?'))
+            if (isComplete) {
                 aiDetailCache.save(
                     metricKey = cacheKey,
                     date = today,
@@ -780,7 +818,9 @@ class VantaGemmaEngine(private val context: Context) {
             }
         }
 
-        "" to false
+        // No AI reachable (offline / provider error): keep the page honest with a
+        // short connection note instead of a canned deterministic breakdown.
+        return@withContext com.vanta.app.data.ai.PhysiologyInsightPromptSystem.OFFLINE_MESSAGE to false
     }
 
     /**
@@ -942,7 +982,9 @@ class VantaGemmaEngine(private val context: Context) {
                     .split(Regex("(?<=[.!?]) +"))
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
-                val overview = if (sentences.size <= 4) rawOverview else sentences.take(4).joinToString(" ")
+                val combined = if (sentences.size <= 4) rawOverview else sentences.take(4).joinToString(" ")
+                // Reject mid-sentence fragments so the home card never shows "a few words and stop".
+                val overview = if (isCompleteProse(combined)) combined else fallbackOverview
                 return GemmaAiAnalysis(
                     strain = det.strain,
                     recovery = det.recovery,
@@ -979,11 +1021,7 @@ class VantaGemmaEngine(private val context: Context) {
             fallbackOverview
         }
 
-        val finalOverview = if (overview.length > 15 && !overview.contains("{") && !overview.startsWith("json", ignoreCase = true)) {
-            overview
-        } else {
-            fallbackOverview
-        }
+        val finalOverview = if (isCompleteProse(overview)) overview else fallbackOverview
 
         return GemmaAiAnalysis(
             strain = det.strain,
@@ -1308,70 +1346,24 @@ class VantaGemmaEngine(private val context: Context) {
         val c = buildCoachState(t, det, baseline)
         val r = det.recovery
         val e = det.energy
-        val fmt = "%.1f".format(det.strain)
-
         val isEvening = c.hourOfDay >= 17 || c.hourOfDay < 5
-        val lead = if (isEvening) {
-            pick(listOf(
-                "You're ending the day at $r% recovery with $fmt strain logged.",
-                "An $r% recovery carried you through $fmt strain today.",
-                "Recovery sits at $r% as you finish out the day ($fmt strain)."
-            ), c.daySeed, 10)
-        } else {
-            pick(listOf(
-                "You're at $r% recovery with $e% energy in the tank.",
-                "Recovery sits at $r% — a solid foundation for today's effort.",
-                "At $r% recovery and $fmt strain so far, the engine is ready."
-            ), c.daySeed, 10)
-        }
 
-        val action = if (isEvening) {
-            pick(listOf(
-                "Unwind and bank good sleep tonight to lock in tomorrow's gains.",
-                "Focus on solid rest tonight — tomorrow is another chance to push.",
-                "Keep the evening relaxed so you start tomorrow at full charge."
-            ), c.daySeed, 11)
-        } else {
-            when {
-                r >= 85 -> pick(listOf(
-                    "This is a go-day: push the intensity while your body is on your side.",
-                    "Everything points up — train with intent on your main work.",
-                    "The body's ready for a real session. Make it count."
-                ), c.daySeed, 11)
-                r >= 70 -> pick(listOf(
-                    "Hit your main work clean, keep volume honest, and skip the fluff.",
-                    "Solid footing — execute your session with sharp focus.",
-                    "You've got enough to train well. Keep reps sharp and quality high."
-                ), c.daySeed, 11)
-                else -> pick(listOf(
-                    "Keep it light — active recovery beats forcing a heavy session.",
-                    "Today is about maintenance. Move well, don't chase numbers.",
-                    "Ease off the gas. Easy movement and rest are the win today."
-                ), c.daySeed, 11)
-            }
+        // 60 generic templates (GenericCoachTemplates.kt) selected by recovery level,
+        // time of day, and a daily rotation. Workouts are deliberately never mentioned,
+        // so a day with zero workout minutes is never called out — the briefing always
+        // reads naturally from the numbers that ARE present.
+        val pool: List<String> = when {
+            c.dataLimited && c.hourOfDay in 5..11 -> com.vanta.app.data.GenericCoachTemplates.DATA_LIMITED
+            isEvening && r >= 85 -> com.vanta.app.data.GenericCoachTemplates.EVE_HIGH
+            isEvening && r >= 70 -> com.vanta.app.data.GenericCoachTemplates.EVE_GOOD
+            isEvening && r >= 55 -> com.vanta.app.data.GenericCoachTemplates.EVE_MODERATE
+            isEvening -> com.vanta.app.data.GenericCoachTemplates.EVE_LOW
+            r >= 85 -> com.vanta.app.data.GenericCoachTemplates.DAY_HIGH
+            r >= 70 -> com.vanta.app.data.GenericCoachTemplates.DAY_GOOD
+            r >= 55 -> com.vanta.app.data.GenericCoachTemplates.DAY_MODERATE
+            else -> com.vanta.app.data.GenericCoachTemplates.DAY_LOW
         }
-
-        val close = when {
-            isEvening -> ""
-            det.strain >= 7.0 -> pick(listOf(
-                "Strain is at $fmt — session is banked. Keep the rest light.",
-                "You've logged $fmt strain. Protect the work with good rest.",
-                "$fmt strain in the books. Maintain easy output."
-            ), c.daySeed, 12)
-            c.hasHrData && c.rhrToday > 0 && c.rhrBaseline > 0 && c.rhrDelta <= -2 -> pick(listOf(
-                "Resting HR is ${-c.rhrDelta} bpm above your ${c.rhrBaseline} norm — keep the effort light until it settles.",
-                "Your resting HR (${c.rhrToday} bpm) is ${-c.rhrDelta} above normal, so today is a stay-easy day.",
-                "RHR running ${-c.rhrDelta} bpm high today. Light movement until it settles."
-            ), c.daySeed, 12)
-            else -> pick(listOf(
-                "Only ${c.steps} steps and no workout yet — the day is still yours to shape.",
-                "Nothing heavy yet and just ${c.steps} steps. There's time to put in the work you planned.",
-                "The day is young (${c.steps} steps) and the load is light. Your session is still ahead."
-            ), c.daySeed, 12)
-        }
-
-        // Hard cap: the overview must never exceed 3 sentences regardless of template wording.
-        return capSentences("$lead $action $close", 3)
+        return com.vanta.app.data.GenericCoachTemplates.render(pick(pool, c.daySeed, 7), r, e, det.strain)
     }
 
     fun generateDeterministicInsights(

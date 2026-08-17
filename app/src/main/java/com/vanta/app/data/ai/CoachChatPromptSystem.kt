@@ -42,10 +42,10 @@ object CoachChatPromptSystem {
             else -> "Night"
         }
 
-        val workoutStatus = if (telemetry.exerciseMinutes > 0) {
+        val workoutStatus: String? = if (telemetry.exerciseMinutes > 0) {
             "${telemetry.exerciseMinutes} min logged"
         } else {
-            "Rest / Active recovery day (no formal workout logged yet)"
+            null // never call out a zero-workout day — just omit the line
         }
         val rhrStatus = if (telemetry.restingBpm > 0) {
             "${telemetry.restingBpm} bpm (Baseline: ${baseline.avgRestingBpm.toInt()} bpm)"
@@ -107,7 +107,7 @@ object CoachChatPromptSystem {
         - Energy: ${det.energy}%
         - Steps: ${telemetry.steps} (7-Day Avg: ${baseline.avgSteps.toLong()})
         - Active Calories: ${telemetry.calories} kcal
-        - Workout Activity: $workoutStatus
+        ${if (workoutStatus != null) "- Workout Activity: $workoutStatus" else ""}
         - Resting HR: $rhrStatus
         - Current HR: ${if (telemetry.currentBpm > 0) "${telemetry.currentBpm} bpm" else "Resting"}
         - Training Load: $coreInfo
@@ -139,9 +139,34 @@ object CoachChatPromptSystem {
     }
 
     fun sanitizeOutput(raw: String): String {
-        return raw
+        var clean = raw
             .replace(Regex("^(?:Vanta\\s*Coach|Coach|Assistant)\\s*:\\s*", RegexOption.IGNORE_CASE), "")
             .replace(Regex("^(?:Analyzing\\s+your\\s+recovery|Analyzing\\s+your\\s+metrics)\\s*:\\s*", RegexOption.IGNORE_CASE), "")
             .trim()
+
+        // Strip markdown code fences wherever they appear (```json / ``` / ~~~).
+        clean = clean
+            .replace(Regex("```[a-zA-Z]*"), "")
+            .replace("```", "")
+            .trim()
+
+        // If the whole reply is wrapped in a JSON object, pull the natural-language field out.
+        if (clean.startsWith("{") && clean.contains("}")) {
+            val extracted = runCatching {
+                val json = org.json.JSONObject(clean)
+                json.optString("response").ifBlank {
+                    json.optString("message").ifBlank {
+                        json.optString("text").ifBlank {
+                            json.optString("content").ifBlank {
+                                json.optString("reply", "")
+                            }
+                        }
+                    }
+                }
+            }.getOrNull()
+            if (!extracted.isNullOrBlank()) clean = extracted.trim()
+        }
+
+        return clean.trim()
     }
 }

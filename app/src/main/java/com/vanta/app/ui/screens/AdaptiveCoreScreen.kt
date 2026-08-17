@@ -39,6 +39,7 @@ fun AdaptiveCoreScreen(
     val core = baseline.adaptiveCore
     val vantixInsight by aiViewModel.vantixInsight.collectAsState()
     val vantixInsightLoading by aiViewModel.vantixInsightLoading.collectAsState()
+    val isVantixAvailable by aiViewModel.isVantixAvailable.collectAsState()
 
     // Trigger insight load when core activates (once per composition)
     LaunchedEffect(core != null) {
@@ -487,7 +488,7 @@ fun AdaptiveCoreScreen(
             }
 
             // ── VANTIX AI Insight Card (only when core is active) ─────────────
-            if (core != null) {
+            if (core != null && isVantixAvailable) {
                 item(key = "vantix_ai_card") {
                     Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                         CoreSectionHeader("VANTIX Intelligence")

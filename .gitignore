@@ -49,6 +49,7 @@ local.properties
 *.keystore
 secrets.properties
 private.properties
+keystore.properties
 
 # Database files
 *.db

@@ -1,5 +1,6 @@
 package com.vanta.app.data.ai
 
+import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -31,6 +32,7 @@ import java.io.File
  * - Real-time progress broadcasting (downloaded bytes, total bytes, percent)
  * - Automatic model warm-up upon download completion
  */
+@SuppressLint("UnspecifiedRegisterReceiverFlag")
 class ModelDownloadManager private constructor(private val context: Context) {
 
     enum class DownloadStatus {
@@ -74,6 +76,9 @@ class ModelDownloadManager private constructor(private val context: Context) {
         }
     }
 
+    // The RECEIVER_NOT_EXPORTED flag only exists from API 33; below that the 2-arg
+    // form is the correct (and only) call. Lint can't prove the SDK guard, so it is
+    // suppressed (class-level) — the runtime behavior is already safe on every API level.
     init {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, intent: Intent?) {
@@ -140,6 +145,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
 
             downloadId = downloadManager.enqueue(request)
             OnDeviceLlmManager.getInstance(context).setDownloadingState()
+            OnDeviceLlmManager.getInstance(context).setDownloadInProgress(true)
 
             _progress.value = Progress(status = DownloadStatus.DOWNLOADING, percent = 0)
             startProgressPolling()
@@ -197,6 +203,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
         pollingJob?.cancel()
         scope.launch {
             _progress.value = Progress(status = DownloadStatus.COMPLETED, percent = 100)
+            OnDeviceLlmManager.getInstance(context).setDownloadInProgress(false)
             OnDeviceLlmManager.getInstance(context).checkModelAvailability()
         }
     }
@@ -207,6 +214,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
             downloadManager.remove(downloadId)
             downloadId = -1L
         }
+        OnDeviceLlmManager.getInstance(context).setDownloadInProgress(false)
         val file = OnDeviceLlmManager.getModelFile(context)
         if (file.exists()) file.delete()
         _progress.value = Progress(status = DownloadStatus.CANCELLED)

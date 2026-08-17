@@ -1,8 +1,30 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
+}
+
+/**
+ * Release signing reads from a gitignored `keystore.properties` at the repo root:
+ *
+ *   storeFile=/absolute/path/to/vanta-release.keystore
+ *   storePassword=...
+ *   keyAlias=...
+ *   keyPassword=...
+ *
+ * When the file is absent (local dev / CI without secrets) we fall back to the
+ * DEBUG key so the build still works — but a real public release MUST provide a
+ * dedicated keystore (never publish a debug-signed APK/AAB).
+ */
+val keystorePropsFile = rootProject.file("keystore.properties")
+val hasReleaseKeystore = keystorePropsFile.exists()
+val releaseKeystoreProps = Properties().apply {
+    if (hasReleaseKeystore) keystorePropsFile.inputStream().use { load(it) }
 }
 
 android {
@@ -19,11 +41,23 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(releaseKeystoreProps.getProperty("storeFile"))
+                storePassword = releaseKeystoreProps.getProperty("storePassword")
+                keyAlias = releaseKeystoreProps.getProperty("keyAlias")
+                keyPassword = releaseKeystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            // Never ship a debug-signed release; use the dedicated keystore when present.
+            signingConfig = if (hasReleaseKeystore) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -51,6 +85,25 @@ android {
         checkReleaseBuilds = false
         abortOnError = false
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
+    // Room schema JSON is committed to app/schemas so MigrationTestHelper can
+    // validate every future migration against the exported schema. We attach it to
+    // the DEBUG source set assets only — Robolectric (unit tests) reads the debug
+    // variant's merged assets, and release builds stay free of schema JSON.
+    sourceSets {
+        getByName("debug").assets.srcDirs(files("$projectDir/schemas"))
+    }
+}
+
+// Export the Room schema (used by MigrationTestHelper for migration validation).
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -77,9 +130,17 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.mediapipe.tasks.genai)
     implementation(libs.google.litertlm)
+    // Firebase Crashlytics (crash + ANR reporting to the Firebase console).
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.crashlytics)
+    implementation(libs.firebase.analytics)
     testImplementation(libs.junit)
     // Real org.json for JVM unit tests (the android.jar mockable version throws on use).
     testImplementation(libs.org.json)
+    // Room migration tests (Robolectric runs Room + SQLite on the JVM).
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

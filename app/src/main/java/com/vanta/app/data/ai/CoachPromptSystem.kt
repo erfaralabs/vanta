@@ -206,7 +206,7 @@ object CoachPromptSystem {
             - Ground all claims in the exact numbers below; never hallucinate or invent stats.
             - Synthesize the interplay between Recovery (${det.recovery}%), Strain ($strainFmt / 21.0), and Energy (${det.energy}%).
             - Pay strict attention to current time ($timeFmt). If evening/night (after 17:00), focus on recovery pacing and evening wind-down.
-            - If a workout was completed (${t.exerciseMinutes} min), factor that in and advise recovery/nutrition.
+            ${if (t.exerciseMinutes > 0) "- If a workout was completed (${t.exerciseMinutes} min), factor that in and advise recovery/nutrition." else "- Never claim a workout happened if none is logged."}
             - Zero exclamation marks (!). No walls of text.
 
             Today's Telemetry & Baselines:
@@ -215,7 +215,7 @@ object CoachPromptSystem {
             - Energy: ${det.energy}% (7-day baseline: ${baseline.avgEnergy.roundToInt()}%)
             - Strain accumulated: $strainFmt / 21.0 (7-day baseline target: ${"%.1f".format(baseline.avgStrain)})
             - Steps: ${t.steps}
-            - Workout minutes: ${t.exerciseMinutes}
+            ${if (t.exerciseMinutes > 0) "- Workout minutes: ${t.exerciseMinutes}" else ""}
             - Active HR: ${if (t.avgBpm > 0) "${t.avgBpm} bpm" else "not registered yet"}
             - Resting HR: ${if (det.rhrToday > 0) "${det.rhrToday} bpm" else "not registered yet"}
             - Weekly average strain: ${"%.1f".format(baseline.avgStrain)}
@@ -275,7 +275,7 @@ object CoachPromptSystem {
             - Strain: $strainFmt / 21.0 (baseline target ${"%.1f".format(baseline.avgStrain)})
             - Energy: ${det.energy}% (baseline ${baseline.avgEnergy.roundToInt()}%)
             - Focus Metric: ${targetMetric.label} (Value: ${when (targetMetric) { PhysiologyMetric.RECOVERY -> "${det.recovery}%"; PhysiologyMetric.STRAIN -> strainFmt; PhysiologyMetric.ENERGY -> "${det.energy}%" }}, Baseline: $targetBaselineText)
-            - Steps: ${t.steps} | Workout: ${t.exerciseMinutes} min
+            - Steps: ${t.steps}${if (t.exerciseMinutes > 0) " | Workout: ${t.exerciseMinutes} min" else ""}
             ${profileSection(profile)}
             ${historySection(history)}
 
@@ -323,7 +323,7 @@ object CoachPromptSystem {
             - Energy: ${det.energy}% (baseline: ${baseline.avgEnergy.roundToInt()}%)
             - Target Focus Metric: ${targetMetric.label} (Current: ${when (targetMetric) { PhysiologyMetric.RECOVERY -> "${det.recovery}%"; PhysiologyMetric.STRAIN -> strainFmt; PhysiologyMetric.ENERGY -> "${det.energy}%" }}, Baseline: $targetBaselineText)
             - Steps: ${t.steps}
-            - Workout: ${t.exerciseMinutes} min
+            ${if (t.exerciseMinutes > 0) "- Workout: ${t.exerciseMinutes} min" else ""}
             - Resting HR: ${if (det.rhrToday > 0) "${det.rhrToday} bpm" else "not registered yet"}
             ${profileSection(profile)}
             ${historySection(history)}
@@ -365,7 +365,7 @@ object CoachPromptSystem {
             - Strain accumulated: $strainFmt / 21.0 (7-day baseline target: ${"%.1f".format(baseline.avgStrain)})
             - Energy: ${det.energy}% (7-day baseline: ${baseline.avgEnergy.roundToInt()}%)
             - Steps: ${t.steps}
-            - Workout: ${t.exerciseMinutes} min
+            ${if (t.exerciseMinutes > 0) "- Workout: ${t.exerciseMinutes} min" else ""}
             - Resting HR: ${if (det.rhrToday > 0) "${det.rhrToday} bpm" else "not registered yet"}
             ${profileSection(profile)}
             ${historySection(history)}

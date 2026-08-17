@@ -41,6 +41,7 @@ import com.vanta.app.ui.theme.*
 @Composable
 fun HealthConnectScreen(
     onBackClick: () -> Unit,
+    onPrivacyPolicyClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -308,6 +309,20 @@ fun HealthConnectScreen(
                 )
             )
         }
+
+        // ── Privacy Policy footer ─────────────────────────────────────────────
+        item(key = "privacy_footer") {
+            Text(
+                text = "Privacy Policy — how your data is handled",
+                color = TextTertiary,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onPrivacyPolicyClick() }
+                    .padding(vertical = 12.dp)
+            )
+        }
     }
 }
 
@@ -400,6 +415,8 @@ private fun PermissionCategorySection(
                         )
                     }
                 }
+
+                Spacer(Modifier.height(12.dp))
             }
         }
     }
