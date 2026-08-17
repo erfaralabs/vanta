@@ -62,3 +62,4 @@ keystore.properties
 *.bin
 *.tflite
 *.task
+google-services.json
