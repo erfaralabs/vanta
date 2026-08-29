@@ -1,5 +1,17 @@
 package com.vanta.app.navigation
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import com.vanta.app.data.notification.CheckInScheduler
+import com.vanta.app.data.notification.NotificationPoster
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -57,6 +69,13 @@ val bottomNavScreens = listOf(
     Screen.Analytics,
 )
 
+private suspend fun postWelcomeNotification(context: Context) {
+    val name = runCatching {
+        VantaDatabase.getInstance(context).userProfileDao().getUserProfile()?.name?.trim().orEmpty()
+    }.getOrDefault("")
+    NotificationPoster.postWelcome(context, name)
+}
+
 /**
  * Ultra-Performance Persistent Vanta Navigation Architecture with Onboarding Flow.
  */
@@ -79,6 +98,37 @@ fun VantaNavGraph() {
     var detailMetric by remember { mutableStateOf(PhysiologyMetric.RECOVERY) }
     var privacyOrigin by remember { mutableStateOf<Screen>(Screen.Settings) }
     var isAiChatOpen by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
+    var pendingWelcome by remember { mutableStateOf(false) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted && pendingWelcome) {
+            pendingWelcome = false
+            scope.launch { postWelcomeNotification(context) }
+        }
+    }
+
+    // Once the user is past onboarding (new or returning), arm the daily check-ins
+    // and ask for notification permission at a calm, contextual moment.
+    LaunchedEffect(showOnboarding) {
+        if (showOnboarding == false) {
+            val appCtx = context.applicationContext
+            NotificationPoster.ensureChannel(appCtx)
+            CheckInScheduler.scheduleAll(appCtx)
+            val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            if (needsPermission) {
+                delay(450) // let the dashboard settle before the system dialog
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else if (pendingWelcome) {
+                pendingWelcome = false
+                postWelcomeNotification(appCtx)
+            }
+        }
+    }
 
     // Intercept back gesture / button press so it navigates back to Home page instead of closing the app
     val canGoBackToHome = isAiChatOpen || currentScreen != Screen.Home || selectedTab != Screen.Home
@@ -106,6 +156,7 @@ fun VantaNavGraph() {
             OnboardingScreen(
                 onOnboardingComplete = {
                     haptics.click()
+                    pendingWelcome = true
                     showOnboarding = false
                     currentScreen = Screen.Home
                     selectedTab = Screen.Home

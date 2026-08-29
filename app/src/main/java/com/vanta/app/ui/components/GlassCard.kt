@@ -92,15 +92,22 @@ fun MetricTile(
     progressLabel: String = "",
     onClick: (() -> Unit)? = null
 ) {
-    val shape = remember { RoundedCornerShape(18.dp) }
-    // Gradient hairline border = 1px-ish depth: bright top edge (light catch),
-    // dark bottom edge (inner shadow). Combined with the subtle outer elevation
-    // this reads as a machined card, not a Flutter-default flat box.
+    val shape = remember { RoundedCornerShape(20.dp) }
+    // Refined machined surface: a faint top light catch that settles into the
+    // card's own neutral tone (no accent tint, Bevel-style). The border is a
+    // consistent hairline that reads as a physical edge, not a Flutter outline.
+    val surfaceBrush = remember {
+        Brush.verticalGradient(
+            0f to Color(0xFF1B1B20),
+            0.35f to Color(0xFF151519),
+            1f to Color(0xFF121217)
+        )
+    }
     val borderBrush = remember {
         Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.16f),
+            0f to Color.White.copy(alpha = 0.12f),
             0.5f to Color.White.copy(alpha = 0.05f),
-            1f to Color.Black.copy(alpha = 0.38f)
+            1f to Color.White.copy(alpha = 0.03f)
         )
     }
     val clickModifier = if (onClick != null) {
@@ -112,14 +119,14 @@ fun MetricTile(
     Box(
         modifier = modifier
             .shadow(
-                elevation = 10.dp,
+                elevation = 8.dp,
                 shape = shape,
                 clip = false,
                 ambientColor = Color.Black,
                 spotColor = Color.Black
             )
             .clip(shape)
-            .background(Color(0xFF111111))
+            .background(surfaceBrush)
             .border(1.dp, borderBrush, shape)
             .then(clickModifier)
             .padding(start = 18.dp, top = 18.dp, end = 18.dp, bottom = 16.dp)
@@ -159,8 +166,8 @@ fun MetricTile(
                     text = value,
                     color = valueColor ?: Color.White,
                     fontSize = if (value.length > 5) 24.sp else 34.sp,
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = (-1.2).sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = (-0.8).sp,
                     maxLines = 1
                 )
                 if (unit.isNotBlank()) {
@@ -226,12 +233,35 @@ fun MetricTile(
 @Composable
 fun SectionHeader(
     title: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trailing: String? = null,
+    accentColor: Color = NeonCyan
 ) {
-    Text(
-        text = title,
-        color = TextPrimary,
-        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-        modifier = modifier
-    )
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(4.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.9f))
+            )
+            Spacer(Modifier.width(9.dp))
+            Text(
+                text = title,
+                color = TextPrimary,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+        }
+        if (!trailing.isNullOrBlank()) {
+            Text(
+                text = trailing,
+                color = TextSecondary,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
+    }
 }

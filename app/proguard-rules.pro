@@ -34,3 +34,6 @@
 -dontwarn com.google.auto.value.**
 -dontwarn autovalue.shaded.**
 -dontwarn org.checkerframework.**
+
+# ── llama.cpp chat engine (native jni) ──────────────────────────────────────
+-keep class com.vanta.app.data.ai.VantaLllamaEngine { *; }

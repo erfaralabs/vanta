@@ -13,17 +13,17 @@ import androidx.core.view.WindowCompat
 private val VantaDarkColorScheme = darkColorScheme(
     primary          = NeonCyan,
     onPrimary        = VantaBlack,
-    primaryContainer = Color(0xFF003040),
+    primaryContainer = Color(0xFF0A2E3A),
     onPrimaryContainer = NeonCyan,
 
     secondary        = NeonBlue,
     onSecondary      = VantaBlack,
-    secondaryContainer = Color(0xFF001A40),
+    secondaryContainer = Color(0xFF0A1F3A),
     onSecondaryContainer = NeonBlue,
 
     tertiary         = RecoveryGreen,
     onTertiary       = VantaBlack,
-    tertiaryContainer = Color(0xFF003320),
+    tertiaryContainer = Color(0xFF0A2F22),
     onTertiaryContainer = RecoveryGreen,
 
     background       = VantaBlack,

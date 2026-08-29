@@ -18,6 +18,7 @@ val provider = GoogleFont.Provider(
 val InterFont = GoogleFont("Inter")
 
 val InterFontFamily = FontFamily(
+    Font(googleFont = InterFont, fontProvider = provider, weight = FontWeight.Light),
     Font(googleFont = InterFont, fontProvider = provider, weight = FontWeight.Normal),
     Font(googleFont = InterFont, fontProvider = provider, weight = FontWeight.Medium),
     Font(googleFont = InterFont, fontProvider = provider, weight = FontWeight.SemiBold),
@@ -25,8 +26,8 @@ val InterFontFamily = FontFamily(
 )
 
 /**
- * Vanta Premium Typography Hierarchy:
- * - Metric numbers: Inter SemiBold
+ * Vanta Premium Typography Hierarchy (Bevel-grade):
+ * - Metric numbers: Inter SemiBold, tabular figures (tnum) so digits align
  * - Metric labels: Inter Medium
  * - Body text: Inter Regular (Normal)
  */
@@ -37,21 +38,24 @@ val VantaTypography = Typography(
         fontWeight = FontWeight.SemiBold,
         fontSize   = 72.sp,
         lineHeight = 76.sp,
-        letterSpacing = (-2).sp
+        letterSpacing = (-2).sp,
+        fontFeatureSettings = "tnum"
     ),
     displayMedium = TextStyle(
         fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize   = 48.sp,
         lineHeight = 52.sp,
-        letterSpacing = (-1.5).sp
+        letterSpacing = (-1.5).sp,
+        fontFeatureSettings = "tnum"
     ),
     displaySmall = TextStyle(
         fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize   = 36.sp,
         lineHeight = 40.sp,
-        letterSpacing = (-1).sp
+        letterSpacing = (-1).sp,
+        fontFeatureSettings = "tnum"
     ),
     // ── Headings (Inter SemiBold) ─────────────────────────────────────────────
     headlineLarge = TextStyle(
@@ -59,20 +63,23 @@ val VantaTypography = Typography(
         fontWeight = FontWeight.SemiBold,
         fontSize   = 28.sp,
         lineHeight = 34.sp,
-        letterSpacing = (-0.5).sp
+        letterSpacing = (-0.5).sp,
+        fontFeatureSettings = "tnum"
     ),
     headlineMedium = TextStyle(
         fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize   = 22.sp,
         lineHeight = 28.sp,
-        letterSpacing = (-0.25).sp
+        letterSpacing = (-0.25).sp,
+        fontFeatureSettings = "tnum"
     ),
     headlineSmall = TextStyle(
         fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize   = 18.sp,
         lineHeight = 24.sp,
+        fontFeatureSettings = "tnum"
     ),
     // ── Titles (Inter Medium) ──────────────────────────────────────────────────
     titleLarge = TextStyle(

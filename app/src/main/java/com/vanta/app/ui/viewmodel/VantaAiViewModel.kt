@@ -13,12 +13,16 @@ import com.vanta.app.data.baseline.UserBaseline
 import com.vanta.app.data.db.DailyMetricRecord
 import com.vanta.app.data.worker.DailyRolloverManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -138,6 +142,12 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
     fun getTotalRamGb(): Double =
         onDeviceLlmManager.getTotalRamGb(getApplication())
 
+    fun getModelStorageLocation(): com.vanta.app.data.ai.OnDeviceLlmManager.ModelStorageLocation =
+        onDeviceLlmManager.getModelStorageLocation()
+
+    fun setModelStorageLocation(location: com.vanta.app.data.ai.OnDeviceLlmManager.ModelStorageLocation) =
+        onDeviceLlmManager.setModelStorageLocation(location)
+
     fun startModelDownload(customUrl: String? = null, hfToken: String? = null) {
         if (!isRamSufficientForOnDevice()) return
         modelDownloadManager.startDownload(customUrl, hfToken)
@@ -153,13 +163,30 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
         _apiUiState.value = AiApiUiState.NotConfigured
     }
 
+    /** Whether THIS provider has its own saved API key (no cross-provider fallback). */
+    fun hasOwnApiKey(provider: AiProvider): Boolean =
+        provider == AiProvider.ON_DEVICE_LITERT ||
+            settingsPrefs.getString(keyPref(provider), "")?.trim().isNullOrBlank().not()
+
+    /* A provider whose key was saved under this exact provider (no fallback). */
+    fun cloudProviderWithOwnKey(): AiProvider? =
+        listOf(AiProvider.GEMINI, AiProvider.DEEPSEEK, AiProvider.MISTRAL, AiProvider.OPENROUTER)
+            .firstOrNull { hasOwnApiKey(it) }
+
+    /** The currently-selected cloud provider (analysis → chat → any provider with own key). */
+    fun selectedCloudProvider(): AiProvider =
+        selectedAnalysisProvider().takeIf { it != AiProvider.ON_DEVICE_LITERT }
+            ?: selectedChatProvider().takeIf { it != AiProvider.ON_DEVICE_LITERT }
+            ?: cloudProviderWithOwnKey() ?: AiProvider.GEMINI
+
     /** The saved API key for the given provider (empty string if none). */
     fun savedApiKey(provider: AiProvider = selectedProvider()): String {
-        if (provider == AiProvider.ON_DEVICE_LITERT) return ""
-        val direct = settingsPrefs.getString(keyPref(provider), "")?.trim() ?: ""
+        val direct = if (provider != AiProvider.ON_DEVICE_LITERT) {
+            settingsPrefs.getString(keyPref(provider), "")?.trim() ?: ""
+        } else ""
         if (direct.isNotBlank()) return direct
         // Fallback: If user saved a key under another cloud provider, use that key
-        for (p in listOf(AiProvider.GEMINI, AiProvider.DEEPSEEK, AiProvider.OPENROUTER)) {
+        for (p in listOf(AiProvider.GEMINI, AiProvider.DEEPSEEK, AiProvider.MISTRAL, AiProvider.OPENROUTER)) {
             val key = settingsPrefs.getString(keyPref(p), "")?.trim() ?: ""
             if (key.isNotBlank()) return key
         }
@@ -317,27 +344,39 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
     private val _isChatGenerating = MutableStateFlow(false)
     val isChatGenerating: StateFlow<Boolean> = _isChatGenerating.asStateFlow()
 
+    private var generationJob: Job? = null
+    private val _aiTypingTick = MutableSharedFlow<Unit>(extraBufferCapacity = 64)
+    val aiTypingTick: SharedFlow<Unit> = _aiTypingTick.asSharedFlow()
+
     fun sendChatMessage(userText: String, imageUri: String? = null) {
         val text = userText.trim()
         if ((text.isBlank() && imageUri.isNullOrBlank()) || _isChatGenerating.value) return
 
         val displayContent = if (text.isNotBlank()) text else "📷 Food / Exercise Image Analysis"
         chatManager.addMessage(role = "user", content = displayContent, imageUri = imageUri)
-        viewModelScope.launch {
+        generationJob = viewModelScope.launch {
             _isChatGenerating.value = true
+            var tokenCount = 0
             try {
                 val curSession = chatManager.currentSession.value
                 val telemetry = _liveTelemetry.value ?: HealthConnectTelemetry()
                 val baseline = _userBaseline.value
-                val provider = selectedChatProvider()
-                val apiKey = savedApiKey(provider)
+                val chatProv = selectedChatProvider()
+                val isOnDeviceDownloaded = onDeviceLlmManager.isModelDownloaded()
+                val provider = if (chatProv == AiProvider.ON_DEVICE_LITERT && !isOnDeviceDownloaded) {
+                    selectedAnalysisProvider().takeIf { it != AiProvider.ON_DEVICE_LITERT } ?: AiProvider.GEMINI
+                } else {
+                    chatProv
+                }
+                val apiKey = savedApiKey(provider).takeIf { it.isNotBlank() } ?: savedApiKey()
                 val profile = _userProfile.value
                 val history = _historicalRecords.value
 
                 // Process multimodal image bytes if an image is attached
                 var imageBase64: String? = null
                 var imageMimeType: String? = null
-                if (!imageUri.isNullOrBlank()) {
+                // OpenRouter (and its free fallbacks) are text-only — never send images.
+                if (!imageUri.isNullOrBlank() && provider != AiProvider.OPENROUTER) {
                     val uri = android.net.Uri.parse(imageUri)
                     val processed = com.vanta.app.ui.utils.ImageUtils.processImageUri(getApplication(), uri)
                     if (processed != null) {
@@ -364,6 +403,11 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
                 ).collect { tokenChunk ->
                     currentText.append(tokenChunk)
                     chatManager.updateLastAssistantMessage(currentText.toString())
+                    tokenCount++
+                    // Light "AI is typing" haptic on the first token, then throttled ticks.
+                    if (tokenCount == 1 || tokenCount % 12 == 0) {
+                        _aiTypingTick.tryEmit(Unit)
+                    }
                 }
 
                 // Post-clean the finished message (strip stray JSON/fences from the stream).
@@ -376,9 +420,18 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
                 val errMsg = "Unable to reach coach right now. Please check your network connection or API key in Settings."
                 chatManager.updateLastAssistantMessage(errMsg)
             } finally {
+                chatManager.commitCurrentSession() // persist ONCE at the end, not per token
                 _isChatGenerating.value = false
+                generationJob = null
             }
         }
+    }
+
+    fun stopGeneration() {
+        generationJob?.cancel()
+        generationJob = null
+        _isChatGenerating.value = false
+        chatManager.commitCurrentSession()
     }
 
     fun startNewChatSession() {
@@ -407,6 +460,11 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
         }
         if (selectedChatProvider() == AiProvider.ON_DEVICE_LITERT) {
             onDeviceLlmManager.preloadModelAsync()
+            // Preload the llama.cpp weights in the background so the first on-device reply
+            // isn't blocked by a ~1.1 GB load from disk.
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching { com.vanta.app.data.ai.VantaLllamaEngine(getApplication()).init() }
+            }
         }
     }
 

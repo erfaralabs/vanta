@@ -102,12 +102,12 @@ class RecoveryModelTest {
     }
 
     @Test
-    fun `documented sleep-path 40 15 15 20 10 weights are applied exactly`() {
+    fun `documented sleep-path 35 12 11 30 12 weights are applied exactly`() {
         val combined = VantaDeterministicPhysiologyEngine.combineRecovery(
             scorePrevStrain = 100.0, scoreTimeSinceWorkout = 80.0,
             scoreTrainingHistory = 90.0, scoreSleep = 85.0, scoreRhr = 70.0
         )
-        assertEquals((0.40 * 100.0 + 0.15 * 80.0 + 0.15 * 90.0 + 0.20 * 85.0 + 0.10 * 70.0).roundToInt(), combined)
+        assertEquals((0.35 * 100.0 + 0.12 * 80.0 + 0.11 * 90.0 + 0.30 * 85.0 + 0.12 * 70.0).roundToInt(), combined)
     }
 
     @Test
@@ -142,7 +142,7 @@ class RecoveryModelTest {
         assertEquals(100.0, VantaDeterministicPhysiologyEngine.scoreTimeSinceWorkout(100.0), 1e-6)
         assertEquals(100.0, VantaDeterministicPhysiologyEngine.scoreTrainingHistory(0.0), 1e-6)
         assertEquals(42.0, VantaDeterministicPhysiologyEngine.scoreTrainingHistory(21.0), 1e-6)
-        assertEquals(45.0, VantaDeterministicPhysiologyEngine.scoreSleep(100), 1e-6)
+        assertEquals(35.0, VantaDeterministicPhysiologyEngine.scoreSleep(100), 1e-6)
         assertEquals(100.0, VantaDeterministicPhysiologyEngine.scoreSleep(600), 1e-6)
     }
 }

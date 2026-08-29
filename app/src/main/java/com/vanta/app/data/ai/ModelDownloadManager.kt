@@ -15,13 +15,20 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.RandomAccessFile
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Background model downloader for Gemma 4 E2B (`google/gemma-4-E2B-it`).
@@ -59,12 +66,16 @@ class ModelDownloadManager private constructor(private val context: Context) {
     private val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     private var downloadId: Long = -1L
     private var pollingJob: Job? = null
+    private var parallelJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
     companion object {
         private const val TAG = "ModelDownload"
-        // Verified direct LiteRT-LM Gemma 4 E2B model weights URL
-        const val DEFAULT_MODEL_URL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm"
+        // Number of concurrent byte-range connections. Higher = faster big-file downloads.
+        private const val DOWNLOAD_THREADS = 6
+        // Verified direct Qwen3-VL-2B Q4_K_M GGUF download URL (single whole-app model).
+        const val DEFAULT_MODEL_URL =
+            "https://huggingface.co/bartowski/Qwen_Qwen3-VL-2B-Instruct-GGUF/resolve/main/Qwen_Qwen3-VL-2B-Instruct-Q4_K_M.gguf"
 
         @Volatile
         private var instance: ModelDownloadManager? = null
@@ -131,26 +142,191 @@ class ModelDownloadManager private constructor(private val context: Context) {
         }
 
         try {
+            cancelSystemDownloads()
+            OnDeviceLlmManager.getInstance(context).setDownloadingState()
+            OnDeviceLlmManager.getInstance(context).setDownloadInProgress(true)
+            _progress.value = Progress(status = DownloadStatus.DOWNLOADING, percent = 0)
+            closeActiveDownloads()
+            startParallelDownload(url, hfToken)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start download: ${e.message}", e)
+            _progress.value = Progress(status = DownloadStatus.ERROR, errorMessage = e.message)
+        }
+    }
+
+    /** Cancels any lingering system-level DownloadManager downloads for this app. */
+    private fun cancelSystemDownloads() {
+        try {
+            val filter = DownloadManager.Query().setFilterByStatus(
+                DownloadManager.STATUS_PENDING or DownloadManager.STATUS_RUNNING
+            )
+            downloadManager.query(filter)?.use { c ->
+                while (c.moveToNext()) {
+                    val uri = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_URI))
+                    if (uri != null && (uri.contains("huggingface") || uri.contains(".gguf"))) {
+                        downloadManager.remove(c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_ID)))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "cancelSystemDownloads: ${e.message}")
+        }
+    }
+
+    private fun closeActiveDownloads() {
+        pollingJob?.cancel()
+        parallelJob?.cancel()
+        runCatching { File(OnDeviceLlmManager.getModelFile(context).parentFile, ".vanta-dl").deleteRecursively() }
+    }
+
+    /** Downloads the GGUF across [DOWNLOAD_THREADS] concurrent HTTP byte-range connections. */
+    private fun startParallelDownload(url: String, hfToken: String?) {
+        val targetFile = OnDeviceLlmManager.getModelFile(context)
+        val partDir = File(targetFile.parentFile, ".vanta-dl")
+        runCatching { partDir.deleteRecursively() }
+        partDir.mkdirs()
+
+        parallelJob = scope.launch {
+            val totalBytes = runCatching { probeContentLength(url, hfToken) }
+                .getOrDefault(OnDeviceLlmManager.ESTIMATED_SIZE_BYTES)
+                .takeIf { it > 0L } ?: OnDeviceLlmManager.ESTIMATED_SIZE_BYTES
+
+            val done = AtomicLong(0L)
+            val total = AtomicLong(totalBytes)
+            val failed = AtomicBoolean(false)
+            val threads = DOWNLOAD_THREADS
+            val chunkSize = (totalBytes + threads - 1) / threads
+            val parts = (0 until threads).map { File(partDir, "part-$it") }
+
+            val ticker = launch {
+                while (isActive) {
+                    val d = done.get()
+                    val t = total.get()
+                    val pct = if (t > 0L) ((d * 100) / t).toInt().coerceIn(0, 99) else 0
+                    _progress.value = Progress(status = DownloadStatus.DOWNLOADING, bytesDownloaded = d, totalBytes = t, percent = pct)
+                    delay(500)
+                }
+            }
+
+            try {
+                coroutineScope {
+                    val jobs = (0 until threads).map { i ->
+                        launch(Dispatchers.IO) {
+                            val start = i * chunkSize
+                            val end = minOf((i + 1) * chunkSize - 1, totalBytes - 1)
+                            if (start > end) return@launch
+                            try {
+                                val conn = (URL(url).openConnection() as HttpURLConnection)
+                                conn.requestMethod = "GET"
+                                conn.connectTimeout = 15_000
+                                conn.readTimeout = 40_000
+                                conn.instanceFollowRedirects = true
+                                conn.setRequestProperty("Range", "bytes=$start-$end")
+                                conn.setRequestProperty("Accept-Encoding", "identity")
+                                conn.setUseCaches(false)
+                                if (!hfToken.isNullOrBlank()) {
+                                    conn.setRequestProperty("Authorization", "Bearer $hfToken")
+                                }
+                                val code = conn.responseCode
+                                if (code != HttpURLConnection.HTTP_PARTIAL) {
+                                    throw IllegalStateException("Server did not honor Range (HTTP $code)")
+                                }
+                                conn.inputStream.use { input ->
+                                    RandomAccessFile(parts[i], "rw").use { raf ->
+                                        raf.setLength(0)
+                                        val buf = ByteArray(256 * 1024)
+                                        var n: Int
+                                        while (input.read(buf).also { n = it } != -1) {
+                                            raf.write(buf, 0, n)
+                                            done.addAndGet(n.toLong())
+                                        }
+                                    }
+                                }
+                                conn.disconnect()
+                            } catch (e: Exception) {
+                                if (!failed.get()) {
+                                    failed.set(true)
+                                    Log.e(TAG, "Download thread $i failed: ${e.message}", e)
+                                }
+                            }
+                        }
+                    }
+                    jobs.joinAll()
+                }
+
+                if (failed.get()) {
+                    throw IllegalStateException("Parallel download failed (a connection dropped).")
+                }
+                if (done.get() < totalBytes) {
+                    throw IllegalStateException("Downloaded ${done.get()} of $totalBytes bytes")
+                }
+
+                RandomAccessFile(targetFile, "rw").use { out ->
+                    out.setLength(0)
+                    parts.forEach { p ->
+                        RandomAccessFile(p, "r").use { inp ->
+                            val buf = ByteArray(256 * 1024)
+                            var n: Int
+                            while (inp.read(buf).also { n = it } != -1) out.write(buf, 0, n)
+                        }
+                        p.delete()
+                    }
+                }
+                runCatching { partDir.delete() }
+
+                ticker.cancel()
+                handleDownloadCompleted(-1L)
+            } catch (e: Exception) {
+                ticker.cancel()
+                Log.e(TAG, "Parallel download failed, falling back to DownloadManager: ${e.message}", e)
+                if (targetFile.exists()) targetFile.delete()
+                runCatching { partDir.deleteRecursively() }
+                startDownloadManager(url, hfToken)
+            }
+        }
+    }
+    /** Reads Content-Length via a HEAD request (falls back to the known model size). */
+    private fun probeContentLength(url: String, hfToken: String?): Long {
+        return try {
+            val conn = (URL(url).openConnection() as HttpURLConnection)
+            conn.requestMethod = "HEAD"
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 30_000
+            conn.instanceFollowRedirects = true
+            if (!hfToken.isNullOrBlank()) conn.setRequestProperty("Authorization", "Bearer $hfToken")
+            val len = conn.contentLengthLong
+            conn.disconnect()
+            len
+        } catch (e: Exception) {
+            Log.w(TAG, "HEAD probe failed: ${e.message}")
+            -1L
+        }
+    }
+
+    /** Legacy single-connection system downloader, used only as a fallback. */
+    private fun startDownloadManager(url: String, hfToken: String?) {
+        try {
             val request = DownloadManager.Request(Uri.parse(url))
-                .setTitle("Vanta AI: Gemma 4 E2B")
-                .setDescription("Downloading on-device intelligence model (~1.18 GB)...")
+                .setTitle("Vanta AI: Qwen3-VL-2B")
+                .setDescription("Downloading on-device intelligence model (~1.1 GB)...")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, OnDeviceLlmManager.MODEL_FILENAME)
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(false)
 
+            val storageLocation = OnDeviceLlmManager.getInstance(context).getModelStorageLocation()
+            if (storageLocation == OnDeviceLlmManager.ModelStorageLocation.PUBLIC_DOWNLOADS) {
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, OnDeviceLlmManager.MODEL_FILENAME)
+            } else {
+                request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, OnDeviceLlmManager.MODEL_FILENAME)
+            }
             if (!hfToken.isNullOrBlank()) {
                 request.addRequestHeader("Authorization", "Bearer $hfToken")
             }
-
             downloadId = downloadManager.enqueue(request)
-            OnDeviceLlmManager.getInstance(context).setDownloadingState()
-            OnDeviceLlmManager.getInstance(context).setDownloadInProgress(true)
-
-            _progress.value = Progress(status = DownloadStatus.DOWNLOADING, percent = 0)
             startProgressPolling()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start download: ${e.message}", e)
+            Log.e(TAG, "DownloadManager fallback failed: ${e.message}", e)
+            OnDeviceLlmManager.getInstance(context).setDownloadInProgress(false)
             _progress.value = Progress(status = DownloadStatus.ERROR, errorMessage = e.message)
         }
     }
@@ -210,10 +386,12 @@ class ModelDownloadManager private constructor(private val context: Context) {
 
     fun cancelDownload() {
         pollingJob?.cancel()
+        parallelJob?.cancel()
         if (downloadId != -1L) {
             downloadManager.remove(downloadId)
             downloadId = -1L
         }
+        runCatching { File(OnDeviceLlmManager.getModelFile(context).parentFile, ".vanta-dl").deleteRecursively() }
         OnDeviceLlmManager.getInstance(context).setDownloadInProgress(false)
         val file = OnDeviceLlmManager.getModelFile(context)
         if (file.exists()) file.delete()

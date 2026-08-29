@@ -26,6 +26,13 @@ class AiNotificationBuffer(context: Context) {
     )
 
     fun saveDrafts(date: String, drafts: List<BufferedMessage>) {
+        // Prune stale per-date buffers (only today's is ever consumed) so the
+        // prefs file never grows unbounded across days.
+        val todayKey = "buffered_drafts_$date"
+        prefs.all.keys
+            .filter { it.startsWith("buffered_drafts_") && it != todayKey }
+            .forEach { prefs.edit().remove(it).apply() }
+
         val array = JSONArray()
         for (d in drafts) {
             val obj = JSONObject()

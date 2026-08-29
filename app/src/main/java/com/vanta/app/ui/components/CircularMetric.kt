@@ -199,7 +199,7 @@ fun CircularMetricRing(
                     text  = displayValue,
                     color = Color.White,
                     fontSize = (28 * valueScale).sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     letterSpacing = (-0.5).sp
                 )
                 if (unit.isNotEmpty()) {
@@ -220,9 +220,9 @@ fun CircularMetricRing(
         Text(
             text  = label.uppercase(),
             color = Color.White.copy(alpha = 0.55f),
-            fontSize = 8.sp,
+            fontSize = 9.sp,
             fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.3.sp
+            letterSpacing = 1.2.sp
         )
     }
 }

@@ -602,11 +602,7 @@ fun SettingsScreen(
             var selectedAnalysisProv by remember { mutableStateOf(vm.selectedAnalysisProvider()) }
             var selectedChatProv by remember { mutableStateOf(vm.selectedChatProvider()) }
             var selectedCloudProvider by remember {
-                mutableStateOf(
-                    if (vm.savedApiKey(AiProvider.GEMINI).isNotBlank()) AiProvider.GEMINI
-                    else if (vm.savedApiKey(AiProvider.DEEPSEEK).isNotBlank()) AiProvider.DEEPSEEK
-                    else AiProvider.OPENROUTER
-                )
+                mutableStateOf(vm.selectedCloudProvider())
             }
             var apiKeyInput by remember { mutableStateOf(vm.savedApiKey(selectedCloudProvider)) }
             var isCustomUrlExpanded by remember { mutableStateOf(false) }
@@ -617,6 +613,13 @@ fun SettingsScreen(
 
             val isRamSufficient = remember { vm.isRamSufficientForOnDevice() }
             val totalRamGb = remember { vm.getTotalRamGb() }
+
+            // On-device option is only selectable when the model is actually on disk
+            // (and RAM is sufficient). Otherwise grey it out so the user knows to
+            // download it first.
+            val isModelOnDisk = onDeviceState == com.vanta.app.data.ai.OnDeviceLlmManager.ModelState.READY ||
+                onDeviceState == com.vanta.app.data.ai.OnDeviceLlmManager.ModelState.DOWNLOADED
+            val onDeviceSelectable = isRamSufficient && isModelOnDisk
 
             GlassCard(
                 accentColor = NeonBlue,
@@ -629,7 +632,7 @@ fun SettingsScreen(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "Independently assign Cloud API (Gemini/DeepSeek/OpenRouter) or On-Device LiteRT for Home Analysis and AI Chat.",
+                    text = "Independently assign Cloud API (Gemini/DeepSeek/Mistral/OpenRouter) or On-Device Qwen3 for Home Analysis and AI Chat.",
                     color = TextSecondary,
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
@@ -677,28 +680,38 @@ fun SettingsScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (!isCloudAnalysis && isRamSufficient) NeonCyan.copy(alpha = 0.15f) else Color.Transparent)
+                            .background(if (!isCloudAnalysis && onDeviceSelectable) NeonCyan.copy(alpha = 0.15f) else Color.Transparent)
                             .clickable {
-                                if (!isRamSufficient) {
-                                    Toast.makeText(
+                                when {
+                                    !isRamSufficient -> Toast.makeText(
                                         context,
                                         "⚡ On-Device AI requires at least 8 GB RAM (${"%.1f".format(totalRamGb)} GB detected).",
                                         Toast.LENGTH_LONG
                                     ).show()
-                                } else {
-                                    selectedAnalysisProv = AiProvider.ON_DEVICE_LITERT
-                                    vm.selectAnalysisProvider(AiProvider.ON_DEVICE_LITERT)
-                                    vm.runAnalysis(forceFresh = true)
+                                    !isModelOnDisk -> Toast.makeText(
+                                        context,
+                                        "Download the on-device model first",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    else -> {
+                                        selectedAnalysisProv = AiProvider.ON_DEVICE_LITERT
+                                        vm.selectAnalysisProvider(AiProvider.ON_DEVICE_LITERT)
+                                        vm.runAnalysis(forceFresh = true)
+                                    }
                                 }
                             }
                             .padding(vertical = 7.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isRamSufficient) "⚡ On-Device LiteRT" else "⚡ On-Device (< 8GB RAM)",
-                            color = if (!isRamSufficient) TextSecondary.copy(alpha = 0.35f) else if (!isCloudAnalysis) NeonCyan else TextSecondary,
+                            text = when {
+                                !isRamSufficient -> "⚡ On-Device (< 8GB RAM)"
+                                !isModelOnDisk -> "⚡ On-Device (not installed)"
+                                else -> "⚡ On-Device Qwen3"
+                            },
+                            color = if (!onDeviceSelectable) TextSecondary.copy(alpha = 0.35f) else if (!isCloudAnalysis) NeonCyan else TextSecondary,
                             fontSize = 11.sp,
-                            fontWeight = if (!isCloudAnalysis && isRamSufficient) FontWeight.Bold else FontWeight.Medium
+                            fontWeight = if (!isCloudAnalysis && onDeviceSelectable) FontWeight.Bold else FontWeight.Medium
                         )
                     }
                 }
@@ -752,7 +765,7 @@ fun SettingsScreen(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = if (!isAiConfigured) {
-                                "Configure an API key or on-device model to unlock"
+                                "Set up an AI provider to enable"
                             } else if (isDailyAnalysisToggled) {
                                 "Enabled · Home screen Vanta Coach briefing active"
                             } else {
@@ -767,7 +780,7 @@ fun SettingsScreen(
                         checked = isDailyAnalysisToggled && isAiConfigured,
                         onCheckedChange = { newVal ->
                             if (!isAiConfigured) {
-                                Toast.makeText(context, "Configure an API key or download on-device model first", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Set up an AI provider first", Toast.LENGTH_SHORT).show()
                                 return@Switch
                             }
                             vm.setDailyAnalysisEnabled(newVal)
@@ -825,7 +838,7 @@ fun SettingsScreen(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = if (!isAiConfigured) {
-                                "Configure an API key or on-device model to unlock chat"
+                                "Set up an AI provider to enable"
                             } else if (isChatToggled) {
                                 "Enabled · Navigation orb & chat assistant active"
                             } else {
@@ -840,7 +853,7 @@ fun SettingsScreen(
                         checked = isChatToggled && isAiConfigured,
                         onCheckedChange = { newVal ->
                             if (!isAiConfigured) {
-                                Toast.makeText(context, "Configure an API key or download on-device model first", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Set up an AI provider first", Toast.LENGTH_SHORT).show()
                                 return@Switch
                             }
                             vm.setAiChatEnabled(newVal)
@@ -898,7 +911,7 @@ fun SettingsScreen(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = if (!isAiConfigured) {
-                                "Configure an API key or on-device model to unlock"
+                                "Set up an AI provider to enable"
                             } else if (isDetailedCoachToggled) {
                                 "Enabled · AI deep-dive on Strain, Recovery & Energy"
                             } else {
@@ -913,7 +926,7 @@ fun SettingsScreen(
                         checked = isDetailedCoachToggled && isAiConfigured,
                         onCheckedChange = { newVal ->
                             if (!isAiConfigured) {
-                                Toast.makeText(context, "Configure an API key or download on-device model first", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Set up an AI provider first", Toast.LENGTH_SHORT).show()
                                 return@Switch
                             }
                             vm.setDetailedCoachEnabled(newVal)
@@ -933,7 +946,7 @@ fun SettingsScreen(
                         .background(if (isAiConfigured) Color(0xFF141414) else Color(0xFF0F0F0F))
                         .border(
                             width = 1.dp,
-                            color = if (isVantixToggled) NeonCyan.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.06f),
+                            color = if (isAiConfigured) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.03f),
                             shape = RoundedCornerShape(12.dp)
                         )
                         .padding(horizontal = 12.dp, vertical = 10.dp)
@@ -941,16 +954,35 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "⚡ VANTIX AI Coach",
-                            color = if (isAiConfigured) TextPrimary else TextTertiary,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "⚡ Vantix AI Coach",
+                                color = if (isAiConfigured) TextPrimary else TextTertiary,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (!isAiConfigured) {
+                                Spacer(Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0x22FFAA00))
+                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "SET UP",
+                                        color = EnergyAmber,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                            }
+                        }
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = if (!isAiConfigured) {
-                                "Configure an API key or on-device model to unlock"
+                                "Set up an AI provider to enable"
                             } else if (isVantixToggled) {
                                 "Enabled · AI insights on the Vantix screen"
                             } else {
@@ -965,7 +997,7 @@ fun SettingsScreen(
                         checked = isVantixToggled && isAiConfigured,
                         onCheckedChange = { newVal ->
                             if (!isAiConfigured) {
-                                Toast.makeText(context, "Configure an API key or download on-device model first", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Set up an AI provider first", Toast.LENGTH_SHORT).show()
                                 return@Switch
                             }
                             vm.setVantixEnabled(newVal)
@@ -1017,27 +1049,37 @@ fun SettingsScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (!isCloudChat && isRamSufficient) NeonCyan.copy(alpha = 0.15f) else Color.Transparent)
+                            .background(if (!isCloudChat && onDeviceSelectable) NeonCyan.copy(alpha = 0.15f) else Color.Transparent)
                             .clickable {
-                                if (!isRamSufficient) {
-                                    Toast.makeText(
+                                when {
+                                    !isRamSufficient -> Toast.makeText(
                                         context,
                                         "⚡ On-Device AI requires at least 8 GB RAM (${"%.1f".format(totalRamGb)} GB detected).",
                                         Toast.LENGTH_LONG
                                     ).show()
-                                } else {
-                                    selectedChatProv = AiProvider.ON_DEVICE_LITERT
-                                    vm.selectChatProvider(AiProvider.ON_DEVICE_LITERT)
+                                    !isModelOnDisk -> Toast.makeText(
+                                        context,
+                                        "Download the on-device model first",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    else -> {
+                                        selectedChatProv = AiProvider.ON_DEVICE_LITERT
+                                        vm.selectChatProvider(AiProvider.ON_DEVICE_LITERT)
+                                    }
                                 }
                             }
                             .padding(vertical = 7.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isRamSufficient) "⚡ On-Device LiteRT" else "⚡ On-Device (< 8GB RAM)",
-                            color = if (!isRamSufficient) TextSecondary.copy(alpha = 0.35f) else if (!isCloudChat) NeonCyan else TextSecondary,
+                            text = when {
+                                !isRamSufficient -> "⚡ On-Device (< 8GB RAM)"
+                                !isModelOnDisk -> "⚡ On-Device (not installed)"
+                                else -> "⚡ On-Device Qwen3"
+                            },
+                            color = if (!onDeviceSelectable) TextSecondary.copy(alpha = 0.35f) else if (!isCloudChat) NeonCyan else TextSecondary,
                             fontSize = 11.sp,
-                            fontWeight = if (!isCloudChat && isRamSufficient) FontWeight.Bold else FontWeight.Medium
+                            fontWeight = if (!isCloudChat && onDeviceSelectable) FontWeight.Bold else FontWeight.Medium
                         )
                     }
                 }
@@ -1057,7 +1099,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf(AiProvider.GEMINI, AiProvider.DEEPSEEK, AiProvider.OPENROUTER).forEach { provider ->
+                    listOf(AiProvider.GEMINI, AiProvider.DEEPSEEK, AiProvider.MISTRAL, AiProvider.OPENROUTER).forEach { provider ->
                         val isSelected = selectedCloudProvider == provider
                         OutlinedButton(
                             onClick = {
@@ -1364,9 +1406,9 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(16.dp))
 
-                // ── 3. On-Device LiteRT-LM Model Status & Controls ─────────────
+                // ── 3. On-Device Qwen3 Model Status & Controls ─────────────
                 Text(
-                    text = "📱 On-Device LiteRT Model",
+                    text = "📱 On-Device Qwen3 Model",
                     color = TextPrimary,
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -1442,7 +1484,7 @@ fun SettingsScreen(
                                     .padding(horizontal = 6.dp, vertical = 3.dp)
                             ) {
                                 Text(
-                                    text = "1.18 GB",
+                                    text = "1.1 GB",
                                     color = TextSecondary,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Medium
@@ -1613,6 +1655,71 @@ fun SettingsScreen(
                                 }
 
                                 Spacer(Modifier.height(10.dp))
+
+                                // ── Model storage location choice ─────────────
+                                var modelStorage by remember {
+                                    mutableStateOf(vm.getModelStorageLocation())
+                                }
+                                Text(
+                                    text = "💾 Model storage location:",
+                                    color = TextSecondary,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFF141414))
+                                        .padding(3.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    val appSelected =
+                                        modelStorage == com.vanta.app.data.ai.OnDeviceLlmManager.ModelStorageLocation.APP_STORAGE
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (appSelected) NeonCyan.copy(alpha = 0.15f) else Color.Transparent)
+                                            .clickable {
+                                                modelStorage =
+                                                    com.vanta.app.data.ai.OnDeviceLlmManager.ModelStorageLocation.APP_STORAGE
+                                                vm.setModelStorageLocation(modelStorage)
+                                            }
+                                            .padding(vertical = 7.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "App storage",
+                                            color = if (appSelected) NeonCyan else TextSecondary,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (appSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (!appSelected) NeonCyan.copy(alpha = 0.15f) else Color.Transparent)
+                                            .clickable {
+                                                modelStorage =
+                                                    com.vanta.app.data.ai.OnDeviceLlmManager.ModelStorageLocation.PUBLIC_DOWNLOADS
+                                                vm.setModelStorageLocation(modelStorage)
+                                            }
+                                            .padding(vertical = 7.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Downloads (SD)",
+                                            color = if (!appSelected) NeonCyan else TextSecondary,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (!appSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    }
+                                }
+
+                                Spacer(Modifier.height(10.dp))
                                 Button(
                                     onClick = {
                                         if (isRamSufficient) {
@@ -1639,7 +1746,7 @@ fun SettingsScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = if (isRamSufficient) "⬇️ DOWNLOAD GEMMA 4 E2B (1.18 GB)" else "🔒 8 GB RAM REQUIRED (${"%.1f".format(totalRamGb)} GB DETECTED)",
+                                        text = if (isRamSufficient) "⬇️ DOWNLOAD QWEN3-VL-2B (1.1 GB)" else "🔒 8 GB RAM REQUIRED (${"%.1f".format(totalRamGb)} GB DETECTED)",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 11.sp
                                     )

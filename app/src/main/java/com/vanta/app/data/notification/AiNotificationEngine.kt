@@ -32,8 +32,8 @@ import kotlin.math.abs
  * milestones, weekly summary, goal reached. Never fires on small step changes,
  * minor HR drift, calorie/distance updates, app launches, or routine syncs.
  *
- * API budget: 3 AI-generated notifications/day (soft) then intelligent templates;
- * 5 total notifications/day (hard) then silence.
+ * API budget: 3 AI-generated notifications/day (soft, user-adjustable 3–10) then
+ * intelligent templates; 15 total notifications/day (hard) then silence.
  */
 class AiNotificationEngine(private val context: Context) {
 
@@ -43,7 +43,6 @@ class AiNotificationEngine(private val context: Context) {
     private val dao = VantaDatabase.getInstance(context).dailyMetricsDao()
 
     companion object {
-        const val SOFT_AI_LIMIT = 3       // default AI calls per day (user-adjustable 3–10)
         const val HARD_TOTAL_LIMIT = 15   // total notifications per day (AI + templates)
         const val STRAIN_DELTA = 1.5      // significant strain increase
         const val RECOVERY_DELTA = 10     // recovery change threshold
@@ -84,7 +83,7 @@ class AiNotificationEngine(private val context: Context) {
 
         // Never consume the daily budget for notifications that can't be shown.
         // Until POST_NOTIFICATIONS is granted (Android 13+), events are evaluated
-        // but not counted, so the full 5/day budget is available the moment the
+        // but not counted, so the full daily budget is available the moment the
         // user grants permission instead of being wasted on invisible posts.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, NotificationPoster.NOTIFICATION_PERMISSION) !=
@@ -149,6 +148,8 @@ class AiNotificationEngine(private val context: Context) {
             weeklyAvgStrain = baseline.avgStrain
         )
         val records = dao.getAllRecords()
+        val hourNow = java.time.LocalTime.now(java.time.ZoneId.systemDefault()).hour
+        val isMorning = hourNow in 5..11
 
         // 1. Workout completed (highest value, not HR-dependent).
         if (settings.workout && workoutEventFired(t.exerciseMinutes)) {
@@ -161,8 +162,9 @@ class AiNotificationEngine(private val context: Context) {
             return base.copy(reason = "strain", priority = "high")
         }
 
-        // 3. Recovery changed by >= 10% mid-day (RHR-driven — gated by heartRate).
-        if (settings.morningRecovery && settings.heartRate && recoveryChangeFired(det.recovery)) {
+        // 3. Recovery changed by >= 10% (RHR-driven — gated by heartRate) — morning only,
+        //    so it never fires "Morning Recovery" in the evening.
+        if (settings.morningRecovery && settings.heartRate && isMorning && recoveryChangeFired(det.recovery)) {
             return base.copy(reason = "recovery", priority = "normal")
         }
 
@@ -179,8 +181,8 @@ class AiNotificationEngine(private val context: Context) {
             }
         }
 
-        // 5. Morning recovery (once/day, after 05:00).
-        if (settings.morningRecovery && morningRecoveryFired(det.recovery)) {
+        // 5. Morning recovery (once/day, morning only — not after 11:00).
+        if (settings.morningRecovery && isMorning && morningRecoveryFired(det.recovery)) {
             return base.copy(reason = "recovery", priority = "normal")
         }
 
@@ -218,8 +220,8 @@ class AiNotificationEngine(private val context: Context) {
 
 
     private fun workoutEventFired(exerciseMinutes: Int): Boolean {
-        prefs.edit().putInt("last_seen_workout_minutes", exerciseMinutes).apply()
         if (exerciseMinutes < MIN_WORKOUT_MINUTES) return false
+        prefs.edit().putInt("last_seen_workout_minutes", exerciseMinutes).apply()
 
         val lastDate = prefs.getString("last_workout_notif_date", "")
         val lastMinutes = prefs.getInt("last_workout_notif_minutes", 0)
@@ -261,7 +263,16 @@ class AiNotificationEngine(private val context: Context) {
 
     private fun recoveryChangeFired(recovery: Int): Boolean {
         val last = prefs.getInt("last_notified_recovery", -1)
-        if (last < 0) return false
+        val lastDate = prefs.getString("last_recovery_date", "")
+        // Seed today's baseline on first sighting so a stale cross-day value can
+        // never trigger a false "±10% change" (e.g. when morning recovery is off).
+        if (last < 0 || lastDate != today) {
+            prefs.edit()
+                .putInt("last_notified_recovery", recovery)
+                .putString("last_recovery_date", today)
+                .apply()
+            return false
+        }
         if (abs(recovery - last) >= RECOVERY_DELTA) {
             prefs.edit().putInt("last_notified_recovery", recovery).apply()
             return true
@@ -275,6 +286,7 @@ class AiNotificationEngine(private val context: Context) {
         if (hour < 5) return false // wait for the morning, not a 00:15 lock
         prefs.edit()
             .putString("last_morning_date", today)
+            .putString("last_recovery_date", today)
             .putInt("last_notified_recovery", recovery)
             .apply()
         return true
@@ -304,8 +316,8 @@ class AiNotificationEngine(private val context: Context) {
         if (prefs.getString("last_evening_date", "") == today) return false
         val now = LocalTime.now(ZoneId.systemDefault())
         val jitterMinute = abs(daySeed * 13).mod(40) // 0 to 39 minutes offset
-        val triggerTime = LocalTime.of(18, 15).plusMinutes(jitterMinute.toLong())
-        if (now.isBefore(triggerTime) || now.isAfter(LocalTime.of(20, 30))) return false
+        val triggerTime = LocalTime.of(18, 0).plusMinutes(jitterMinute.toLong())
+        if (now.isBefore(triggerTime) || now.isAfter(LocalTime.of(23, 30))) return false
         prefs.edit().putString("last_evening_date", today).apply()
         return true
     }
@@ -379,6 +391,7 @@ class AiNotificationEngine(private val context: Context) {
             ?: settings.getString("ai_provider", null)
             ?: if (settings.getString("api_key_gemini", "")?.isNotBlank() == true) AiProvider.GEMINI.name
             else if (settings.getString("api_key_deepseek", "")?.isNotBlank() == true) AiProvider.DEEPSEEK.name
+            else if (settings.getString("api_key_mistral", "")?.isNotBlank() == true) AiProvider.MISTRAL.name
             else if (settings.getString("api_key_openrouter", "")?.isNotBlank() == true) AiProvider.OPENROUTER.name
             else AiProvider.GEMINI.name
         val provider = runCatching { AiProvider.valueOf(providerName) }.getOrDefault(AiProvider.GEMINI)

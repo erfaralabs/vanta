@@ -27,9 +27,11 @@ data class DailyMetricRecord(
     val biologicalAge: Double = 0.0
 ) {
     /**
-     * True when this day has genuinely recorded telemetry (steps, HR, calories,
-     * distance or a workout). Empty days — app closed, watch not worn — must
-     * never count as training days or skew the baseline.
+     * True when this day has genuine recorded Vanta telemetry that Recovery / Strain /
+     * Energy were derived from (steps, HR, calories, distance, or a workout). An empty
+     * day — app closed, watch not worn — must never count as a learned day. Days earned
+     * here drive day-count, baseline, Adaptive Core and Fitness Age, so they stay only
+     * when Vanta actually has data for that date.
      */
     fun hasRealData(): Boolean =
         steps > 0 || calories > 0 || avgBpm > 0 || maxBpm > 0 ||

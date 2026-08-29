@@ -92,6 +92,7 @@ import com.vanta.app.ui.theme.TextSecondary
 import com.vanta.app.ui.viewmodel.VantaAiViewModel
 import com.vanta.app.ui.utils.rememberVantaHaptics
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -140,6 +141,7 @@ fun VantaAiChatOverlay(
     val isModelInitializing = onDeviceState == com.vanta.app.data.ai.OnDeviceLlmManager.ModelState.INITIALIZING
     val chatProvider = viewModel.selectedChatProvider()
     val isOnDevice = chatProvider == com.vanta.app.data.AiProvider.ON_DEVICE_LITERT
+    val isOpenRouter = chatProvider == com.vanta.app.data.AiProvider.OPENROUTER
 
     // Activity Result Launchers
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -188,11 +190,17 @@ fun VantaAiChatOverlay(
         keyboardController?.show()
     }
 
-    // Auto-scroll on new message
-    LaunchedEffect(currentSession.messages.size, isGenerating) {
+    // Auto-scroll on new message AND follow the streamed reply so the tail is never cut off.
+    val lastMsgLen = currentSession.messages.lastOrNull()?.content?.length ?: 0
+    LaunchedEffect(currentSession.messages.size, lastMsgLen) {
         if (currentSession.messages.isNotEmpty()) {
-            listState.animateScrollToItem(currentSession.messages.size - 1)
+            listState.scrollToItem(currentSession.messages.size - 1)
         }
+    }
+
+    // Light "AI is typing" haptic tick as tokens stream in.
+    LaunchedEffect(Unit) {
+        viewModel.aiTypingTick.collect { haptics.tick() }
     }
 
     Box(
@@ -594,24 +602,26 @@ fun VantaAiChatOverlay(
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Photo / Camera Attachment Button
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1A1A1A))
-                            .clickable {
-                                haptics.click()
-                                showMediaSheet = true
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AddPhotoAlternate,
-                            contentDescription = "Attach Photo",
-                            tint = if (selectedImageUri != null) NeonCyan else TextSecondary,
-                            modifier = Modifier.size(19.dp)
-                        )
+                    // Photo / Camera Attachment Button (hidden for text-only OpenRouter chat)
+                    if (!isOpenRouter) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1A1A1A))
+                                .clickable {
+                                    haptics.click()
+                                    showMediaSheet = true
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AddPhotoAlternate,
+                                contentDescription = "Attach Photo",
+                                tint = if (selectedImageUri != null) NeonCyan else TextSecondary,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
                     }
 
                     Spacer(Modifier.width(8.dp))
@@ -645,7 +655,11 @@ fun VantaAiChatOverlay(
                         decorationBox = { innerTextField ->
                             if (inputText.isEmpty()) {
                                 Text(
-                                    text = if (selectedImageUri != null) "Add caption or question..." else "Ask Vanta Coach or attach photo...",
+                                    text = when {
+                                        selectedImageUri != null -> "Add caption or question..."
+                                        isOpenRouter -> "Ask Vanta Coach..."
+                                        else -> "Ask Vanta Coach or attach photo..."
+                                    },
                                     color = TextSecondary.copy(alpha = 0.55f),
                                     fontSize = 13.5.sp
                                 )
@@ -661,21 +675,35 @@ fun VantaAiChatOverlay(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(if (canSend) NeonCyan else Color(0xFF1C1C1E))
-                            .clickable(enabled = canSend) {
-                                haptics.click()
-                                viewModel.sendChatMessage(inputText, selectedImageUri?.toString())
-                                inputText = ""
-                                selectedImageUri = null
+                            .background(if (isGenerating) Color(0xFF222226) else if (canSend) NeonCyan else Color(0xFF1C1C1E))
+                            .clickable(enabled = canSend || isGenerating) {
+                                if (isGenerating) {
+                                    haptics.click()
+                                    viewModel.stopGeneration()
+                                } else if (canSend) {
+                                    haptics.click()
+                                    viewModel.sendChatMessage(inputText, selectedImageUri?.toString())
+                                    inputText = ""
+                                    selectedImageUri = null
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (canSend) Color.Black else TextSecondary.copy(alpha = 0.6f),
-                            modifier = Modifier.size(16.dp)
-                        )
+                        if (isGenerating) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Stop",
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                tint = if (canSend) Color.Black else TextSecondary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }

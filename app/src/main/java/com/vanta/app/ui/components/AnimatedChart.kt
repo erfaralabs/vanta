@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -48,6 +49,15 @@ fun GlowLineChart(
         val maxY   = data.maxOf { it.y }
         val rangeY = (maxY - minY).coerceAtLeast(0.1f)
         val stepX  = size.width / (count - 1).toFloat()
+
+        // Subtle horizontal grid hairlines (Bevel-style reference lines).
+        val plotTop = size.height * 0.06f
+        val plotBottom = size.height * 0.94f
+        val gridColor = Color.White.copy(alpha = 0.05f)
+        for (g in 0..3) {
+            val y = plotTop + (plotBottom - plotTop) * g / 3f
+            drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
+        }
 
         linePath.reset()
         
@@ -136,11 +146,13 @@ fun GlowBarChart(
             val left   = i * (barW + spacing) + spacing / 2f
             val top    = size.height - barH
 
-            drawRect(
-                brush   = barBrush,
-                topLeft = Offset(left, top),
-                size    = Size(barW, barH),
-                alpha   = 0.85f
+            val corner = CornerRadius(barW * 0.5f, barW * 0.5f)
+            drawRoundRect(
+                brush       = barBrush,
+                topLeft     = Offset(left, top),
+                size        = Size(barW, barH),
+                cornerRadius = corner,
+                alpha       = 0.85f
             )
         }
     }

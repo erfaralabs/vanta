@@ -2,32 +2,36 @@ package com.vanta.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ── Core AMOLED palette ──────────────────────────────────────────────────────
+// ── Core AMOLED palette (Bevel-inspired premium neutral surfaces) ────────────
 val VantaBlack        = Color(0xFF000000)
-val VantaSurface      = Color(0xFF0A0A0A)
-val VantaSurface2     = Color(0xFF111111)
-val VantaCard         = Color(0xFF0D0D0D)
-val VantaBorder       = Color(0x1FFFFFFF)   // 12% white
+val VantaSurface      = Color(0xFF0A0A0B)   // near-black, faint warmth
+val VantaSurface2     = Color(0xFF16161A)   // elevated surface
+val VantaCard         = Color(0xFF121217)   // card surface
+val VantaBorder       = Color(0x14FFFFFF)   // 8% white hairline
 
-// ── Neon accents ─────────────────────────────────────────────────────────────
-val NeonCyan          = Color(0xFF00F5FF)
-val NeonCyanDim       = Color(0xFF00B8C4)
-val NeonBlue          = Color(0xFF0080FF)
-val NeonBlueDim       = Color(0xFF0050CC)
+// Higher-elevation surfaces used inside cards / panels
+val VantaElevated     = Color(0xFF1A1A1F)
+val VantaHairline     = Color(0x0FFFFFFF)   // 6% white — subtle dividers
+
+// ── Neon accents (softened to premium tones) ─────────────────────────────────
+val NeonCyan          = Color(0xFF2FE0E8)
+val NeonCyanDim       = Color(0xFF2BB8C2)
+val NeonBlue          = Color(0xFF4C9AFF)
+val NeonBlueDim       = Color(0xFF3A6FD8)
 
 // ── Metric accent colors ──────────────────────────────────────────────────────
-val StrainColor       = Color(0xFF00F5FF)   // Cyan
-val RecoveryGreen     = Color(0xFF39FF80)   // Neon green
-val EnergyAmber       = Color(0xFFFFAA00)   // Amber
+val StrainColor       = Color(0xFFFF9F0A)   // Warm orange (strain)
+val RecoveryGreen     = Color(0xFF34D399)   // Mint green (recovery)
+val EnergyAmber       = Color(0xFFF5A623)   // Refined amber (energy)
 
 // ── Heart rate / health ───────────────────────────────────────────────────────
-val HeartRateRed      = Color(0xFFFF3B6B)
-val CaloriesOrange    = Color(0xFFFF6A00)
-val StepsViolet       = Color(0xFFB44BFF)
-// Circular readiness-ring palette (WHOOP / Oura grade, refined hues)
-val RingRecovery      = Color(0xFF2FBF8F) // emerald green
-val RingStrain        = Color(0xFFFF9F0A) // orange
-val RingEnergy        = Color(0xFF2F9BFF) // electric blue
+val HeartRateRed      = Color(0xFFFF5A76)
+val CaloriesOrange    = Color(0xFFFF7A3D)
+val StepsViolet       = Color(0xFF9B6BFF)
+// Circular readiness-ring palette (WHOOP / Oura / Bevel grade)
+val RingRecovery      = Color(0xFF34D399) // mint green
+val RingStrain        = Color(0xFFFF8A3D) // warm orange
+val RingEnergy        = Color(0xFF4DA3FF) // soft electric blue
 
 // ── Dynamic hero gradients (time-of-day) ─────────────────────────────────────
 // Morning  (5–11)  → Orange–Gold

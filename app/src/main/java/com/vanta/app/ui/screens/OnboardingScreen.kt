@@ -75,6 +75,32 @@ fun OnboardingScreen(
         }
     }
 
+    var showAdvancedOptions by remember { mutableStateOf(false) }
+    var supabaseUrl by remember { mutableStateOf(com.vanta.app.data.backup.SupabaseBackupManager.getUrl(context)) }
+    var supabaseApiKey by remember { mutableStateOf(com.vanta.app.data.backup.SupabaseBackupManager.getApiKey(context)) }
+    var isRestoringSupabase by remember { mutableStateOf(false) }
+    var restoreErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            if (bytes != null) {
+                viewModel.restoreFromLocalFile(
+                    bytes = bytes,
+                    onSuccess = { summary ->
+                        android.widget.Toast.makeText(context, summary, android.widget.Toast.LENGTH_LONG).show()
+                        onOnboardingComplete()
+                    },
+                    onError = { err ->
+                        restoreErrorMessage = err
+                    }
+                )
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -240,6 +266,164 @@ fun OnboardingScreen(
                             Text("START VANTA", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold))
                             Spacer(Modifier.width(6.dp))
                             Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(18.dp))
+
+            // ── Advanced Options: Pull from Supabase Cloud / File Restore ───────
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF0E0E0E))
+                    .border(1.dp, if (showAdvancedOptions) NeonCyan.copy(alpha = 0.35f) else Color(0x1AFFFFFF), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            haptics.tick()
+                            showAdvancedOptions = !showAdvancedOptions
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "⚙️", fontSize = 13.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Advanced Options (Restore from Backup)",
+                            color = if (showAdvancedOptions) NeonCyan else TextSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.5.sp
+                        )
+                    }
+                    Text(
+                        text = if (showAdvancedOptions) "▲ Hide" else "▼ Show",
+                        color = TextTertiary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = showAdvancedOptions,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Have an existing Vanta backup? Pull your entire profile, baseline, and 7-day history from Supabase Cloud or import a .vanta file.",
+                            color = TextSecondary,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp
+                        )
+
+                        OutlinedTextField(
+                            value = supabaseUrl,
+                            onValueChange = { supabaseUrl = it; restoreErrorMessage = null },
+                            label = { Text("Supabase Project URL", fontSize = 11.sp) },
+                            placeholder = { Text("https://your-project.supabase.co", fontSize = 11.sp) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = NeonCyan,
+                                unfocusedBorderColor = Color(0x33FFFFFF)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = supabaseApiKey,
+                            onValueChange = { supabaseApiKey = it; restoreErrorMessage = null },
+                            label = { Text("Supabase Anon Public Key", fontSize = 11.sp) },
+                            placeholder = { Text("eyJhbGciOiJIUzI1NiIsIn...", fontSize = 11.sp) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = NeonCyan,
+                                unfocusedBorderColor = Color(0x33FFFFFF)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        if (!restoreErrorMessage.isNullOrBlank()) {
+                            Text(
+                                text = "⚠️ $restoreErrorMessage",
+                                color = HeartRateRed,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    if (supabaseUrl.isBlank() || supabaseApiKey.isBlank()) {
+                                        restoreErrorMessage = "Please enter both Supabase URL and Anon API key."
+                                        return@Button
+                                    }
+                                    haptics.click()
+                                    isRestoringSupabase = true
+                                    restoreErrorMessage = null
+                                    viewModel.restoreFromSupabase(
+                                        url = supabaseUrl,
+                                        apiKey = supabaseApiKey,
+                                        onSuccess = { msg ->
+                                            isRestoringSupabase = false
+                                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                                            onOnboardingComplete()
+                                        },
+                                        onError = { err ->
+                                            isRestoringSupabase = false
+                                            restoreErrorMessage = err
+                                        }
+                                    )
+                                },
+                                enabled = !isRestoringSupabase,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NeonCyan.copy(alpha = 0.2f),
+                                    contentColor = NeonCyan
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isRestoringSupabase) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        color = NeonCyan,
+                                        strokeWidth = 1.8.dp
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("RESTORING...", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                } else {
+                                    Text("☁️ PULL SUPABASE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    haptics.tick()
+                                    importLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = TextSecondary
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("📂 IMPORT .VANTA", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }

@@ -264,4 +264,87 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
     }
+
+    /**
+     * Pulls and restores backup directly from Supabase Cloud during Onboarding.
+     */
+    fun restoreFromSupabase(
+        url: String,
+        apiKey: String,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (_uiState.value.isSaving) return
+        _uiState.value = _uiState.value.copy(isSaving = true)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val saveResult = com.vanta.app.data.backup.SupabaseBackupManager.saveConfig(context, url, apiKey)
+            if (saveResult.isFailure) {
+                _uiState.value = _uiState.value.copy(isSaving = false)
+                viewModelScope.launch(Dispatchers.Main) {
+                    onError(saveResult.exceptionOrNull()?.message ?: "Invalid Supabase configuration")
+                }
+                return@launch
+            }
+
+            val restoreResult = com.vanta.app.data.backup.SupabaseBackupManager.restoreBackup(context)
+            if (restoreResult.isSuccess) {
+                // Ensure profile is flagged as completed
+                val updatedProfile = profileDao.getUserProfile()?.copy(isOnboardingCompleted = true)
+                if (updatedProfile != null) {
+                    profileDao.insertOrUpdateProfile(updatedProfile)
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    isOnboardingComplete = true
+                )
+                viewModelScope.launch(Dispatchers.Main) {
+                    onSuccess(restoreResult.getOrNull() ?: "Backup successfully restored from Supabase ✓")
+                }
+            } else {
+                _uiState.value = _uiState.value.copy(isSaving = false)
+                viewModelScope.launch(Dispatchers.Main) {
+                    onError(restoreResult.exceptionOrNull()?.message ?: "Failed to restore backup from Supabase.")
+                }
+            }
+        }
+    }
+
+    /**
+     * Restores backup from a local .vanta file during Onboarding.
+     */
+    fun restoreFromLocalFile(
+        bytes: ByteArray,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (_uiState.value.isSaving) return
+        _uiState.value = _uiState.value.copy(isSaving = true)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val summary = com.vanta.app.data.profile.ProfileBackup.import(context, bytes)
+            if (summary != null) {
+                val updatedProfile = profileDao.getUserProfile()?.copy(isOnboardingCompleted = true)
+                if (updatedProfile != null) {
+                    profileDao.insertOrUpdateProfile(updatedProfile)
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    isOnboardingComplete = true
+                )
+                viewModelScope.launch(Dispatchers.Main) {
+                    onSuccess(summary)
+                }
+            } else {
+                _uiState.value = _uiState.value.copy(isSaving = false)
+                viewModelScope.launch(Dispatchers.Main) {
+                    onError("Failed to restore from file — invalid .vanta profile.")
+                }
+            }
+        }
+    }
 }

@@ -18,20 +18,38 @@ import com.vanta.app.R
 object NotificationPoster {
 
     const val CHANNEL_ID = "vanta_ai_coach"
+    const val CHANNEL_ID_CHECKIN = "vanta_checkins"
     const val NOTIFICATION_PERMISSION = Manifest.permission.POST_NOTIFICATIONS
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "AI Coach",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Personalized coach insights from Vanta"
-                enableVibration(true)
-            }
-            nm.createNotificationChannel(channel)
+
+            // High-importance "Alerts" channel — recovery, strain, workouts, milestones.
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "Coach Alerts",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Meaningful coach events: recovery, strain, workouts and milestones"
+                    enableVibration(true)
+                }
+            )
+
+            // Silent "Check-ins" channel — the scheduled morning/evening rituals and
+            // intraday nudges stay visible but calm, like WHOOP / Bevel.
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID_CHECKIN,
+                    "Daily Check-ins",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Quiet morning and evening rituals and gentle intraday nudges"
+                    enableVibration(false)
+                    setSound(null, null)
+                }
+            )
         }
     }
 
@@ -60,13 +78,13 @@ object NotificationPoster {
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, channelIdFor(decision.reason))
             .setSmallIcon(R.drawable.ic_stat_vanta)
             .setContentTitle(decision.title)
             .setContentText(decision.message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(decision.message))
             .setPriority(priority)
-            .setCategory(NotificationCompat.CATEGORY_PROMO)
+            .setCategory(categoryFor(decision.reason))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
@@ -74,6 +92,39 @@ object NotificationPoster {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notificationId(decision.reason), notification)
         return true
+    }
+
+    /** Quiet scheduled rituals (check-in channel) vs. loud coach alerts (alerts channel). */
+    private fun channelIdFor(reason: String): String = when (reason) {
+        "morning", "night", "midday", "afternoon", "evening" -> CHANNEL_ID_CHECKIN
+        else -> CHANNEL_ID
+    }
+
+    private fun categoryFor(reason: String): String = when (reason) {
+        "morning", "night", "midday", "afternoon", "evening" -> NotificationCompat.CATEGORY_STATUS
+        else -> NotificationCompat.CATEGORY_RECOMMENDATION
+    }
+
+    /**
+     * Friendly first-run welcome posted right after onboarding completes, so the
+     * user immediately knows the coach is alive and notifications are wired up.
+     */
+    fun postWelcome(context: Context, name: String): Boolean {
+        val greeting = if (name.isNotBlank()) {
+            "Welcome to Vanta, ${name.replaceFirstChar { it.uppercase() }}."
+        } else {
+            "Welcome to Vanta."
+        }
+        return post(
+            context,
+            NotificationDecision(
+                notify = true,
+                title = "Your coach is ready",
+                message = "$greeting I'll check in each morning and evening, and only nudge you when it matters — recovery, strain, and milestones.",
+                priority = "high",
+                reason = "welcome"
+            )
+        )
     }
 
     private fun notificationId(reason: String): Int = when (reason) {
@@ -88,6 +139,7 @@ object NotificationPoster {
         "midday" -> 1009
         "afternoon" -> 1010
         "evening" -> 1011
+        "welcome" -> 1012
         else -> 1000 // recovery
     }
 

@@ -28,6 +28,9 @@ val releaseKeystoreProps = Properties().apply {
 }
 
 android {
+    // llama.cpp native chat engine is enabled only with -Pllama=true (needs NDK +
+    // CMake + the llama.cpp submodule). Declared once at the top of the block.
+    val buildLllama = providers.gradleProperty("llama").orNull == "true"
     namespace = "com.vanta.app"
     compileSdk = 35
 
@@ -39,6 +42,18 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        if (buildLllama) {
+            ndk {
+                // arm64-v8a only → small APK, native NEON + Vulkan acceleration.
+                abiFilters += listOf("arm64-v8a")
+            }
+            externalNativeBuild {
+                cmake {
+                    arguments += listOf("-DANDROID_STL=c++_shared", "-DANDROID_PLATFORM=android-26")
+                }
+            }
+        }
     }
 
     signingConfigs {
@@ -98,6 +113,21 @@ android {
     // variant's merged assets, and release builds stay free of schema JSON.
     sourceSets {
         getByName("debug").assets.srcDirs(files("$projectDir/schemas"))
+    }
+
+    if (buildLllama) {
+        ndkVersion = "27.1.12297006"
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
+        }
+        packaging {
+            jniLibs {
+                useLegacyPackaging = false
+            }
+        }
     }
 }
 

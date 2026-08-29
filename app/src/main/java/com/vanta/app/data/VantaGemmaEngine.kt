@@ -64,6 +64,7 @@ data class HealthConnectTelemetry(
 enum class AiProvider(val label: String) {
     GEMINI("Gemini Free"),
     DEEPSEEK("DeepSeek"),
+    MISTRAL("Mistral"),
     OPENROUTER("OpenRouter"),
     ON_DEVICE_LITERT("On-Device (Gemma 4 E2B)")
 }
@@ -80,17 +81,25 @@ class VantaGemmaEngine(private val context: Context) {
         const val DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
         const val DEEPSEEK_MODEL = "deepseek-chat"
         const val OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-        /**
-         * OpenRouter model for short coaching lines. The historical `:free` slug was
-         * retired by OpenRouter, so this is the paid 7B instruct model — fast, cheap,
-         * and verified to work with the bundled credit-backed key.
-         */
+        /** OpenRouter model for short coaching lines. The historical `:free` slug for
+         * this exact model was retired, so this is the paid 7B instruct model — fast,
+         * cheap, and verified to work with the bundled credit-backed key. */
         const val OPENROUTER_MODEL = "qwen/qwen-2.5-7b-instruct"
-        /** Gemini via Google's OpenAI-compatible endpoint. "latest" alias always resolves
-         *  to the current free Flash-Lite-class model (gemini-2.5-flash-lite is retired
-         *  for new users). Free tier key. */
+        /**
+         * Fallback tried automatically when the primary OpenRouter model fails.
+         * `openrouter/free` is OpenRouter's aggregate free tier — it routes to whatever
+         * free model is currently available, so we never hardcode a `:free` slug that
+         * might be retired. Costs nothing and degrades gracefully to the deterministic
+         * coach if it also fails.
+         */
+        val OPENROUTER_FALLBACK_MODELS = listOf("openrouter/free")
+        /** Mistral's OpenAI-compatible chat completions endpoint. */
+        const val MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
+        const val MISTRAL_MODEL = "mistral-medium-latest"
+        /** Gemini via Google's OpenAI-compatible endpoint. Uses standard stable Flash model ID. */
         const val GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-        const val GEMINI_MODEL = "gemini-flash-latest"
+        const val GEMINI_MODEL = "gemini-3.5-flash-lite"
+        val GEMINI_FALLBACK_MODELS = listOf("gemini-3.5-flash-lite", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-flash-latest")
 
         /** Only palette colors are accepted from the model so the UI can never look off-brand. */
         internal val allowedCalloutColors = setOf(
@@ -158,6 +167,7 @@ class VantaGemmaEngine(private val context: Context) {
 
     private fun providerEndpoint(provider: AiProvider): Pair<String, String> = when (provider) {
         AiProvider.DEEPSEEK -> DEEPSEEK_URL to DEEPSEEK_MODEL
+        AiProvider.MISTRAL -> MISTRAL_URL to MISTRAL_MODEL
         AiProvider.OPENROUTER -> OPENROUTER_URL to OPENROUTER_MODEL
         AiProvider.GEMINI, AiProvider.ON_DEVICE_LITERT -> GEMINI_URL to GEMINI_MODEL
     }
@@ -166,14 +176,14 @@ class VantaGemmaEngine(private val context: Context) {
      * Free-tier cloud providers (Gemini Flash) cap usage at ~20 requests/min — and
      * share that quota across every feature (AI coach, notification engine, key
      * check) and every app open. This gate keeps Vanta well under the limit:
-     *   • at least 6s between any two cloud calls  (max ~10/min from spacing)
-     *   • never more than 8 calls in any rolling 60s window
+     *   • at least 1s between any two cloud calls
+     *   • never more than 20 calls in any rolling 60s window
      * so a burst of features can never exhaust the quota on its own.
      */
     private object CloudGate {
         private const val WINDOW_MS = 60_000L
         private const val MAX_PER_WINDOW = 20
-        private const val MIN_GAP_MS = 1_000L
+        private const val MIN_GAP_MS = 2_000L
         private val lock = Any()
         private val timestamps = ArrayDeque<Long>()
 
@@ -230,7 +240,7 @@ class VantaGemmaEngine(private val context: Context) {
         // Free-tier quota (HTTP 429): honor the provider's suggested backoff and
         // retry ONCE before giving up to the deterministic coach.
         if (result.statusCode == 429) {
-            val backoffMs = parseRetryAfterMs(result.body)?.coerceIn(5_000L, 25_000L) ?: 15_000L
+            val backoffMs = parseRetryAfterMs(result.body)?.coerceIn(2_000L, 10_000L) ?: 3_000L
             android.util.Log.w("VantaAI", "Cloud AI rate-limited (429), retrying in ${backoffMs}ms")
             delay(backoffMs)
             val retry = postOnce(systemPrompt, userPrompt, apiKey, provider, maxTokens, connectTimeoutMs, readTimeoutMs, imageBase64, imageMimeType)
@@ -250,9 +260,17 @@ class VantaGemmaEngine(private val context: Context) {
         imageBase64: String? = null,
         imageMimeType: String? = null
     ): ChatResult {
+        val cleanKey = apiKey.trim()
+        if (cleanKey.isBlank()) return ChatResult(401, "API key is blank")
+
         try {
-            val (url, model) = providerEndpoint(provider)
-            
+            val (url, primaryModel) = providerEndpoint(provider)
+            val modelsToTry = when (provider) {
+                AiProvider.GEMINI -> (listOf(primaryModel) + GEMINI_FALLBACK_MODELS).distinct()
+                AiProvider.OPENROUTER -> (listOf(primaryModel) + OPENROUTER_FALLBACK_MODELS).distinct()
+                else -> listOf(primaryModel)
+            }
+
             val userContent = if (!imageBase64.isNullOrBlank()) {
                 val parts = org.json.JSONArray()
                 val textPart = JSONObject()
@@ -276,62 +294,169 @@ class VantaGemmaEngine(private val context: Context) {
                 .put(JSONObject().put("role", "system").put("content", systemPrompt))
                 .put(JSONObject().put("role", "user").put("content", userContent))
 
-            val body = JSONObject()
-                .put("model", model)
-                .put("messages", messagesArray)
-                .put("max_tokens", maxTokens)
-                .put("temperature", 0.6)
-                .toString()
+            var lastCode = -1
+            var lastText: String? = null
 
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.connectTimeout = connectTimeoutMs
-                conn.readTimeout = readTimeoutMs
-                conn.setRequestProperty("Authorization", "Bearer $apiKey")
-                conn.setRequestProperty("x-goog-api-key", apiKey)
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use { it.write(body.toByteArray()) }
+            for (model in modelsToTry) {
+                val body = JSONObject()
+                    .put("model", model)
+                    .put("messages", messagesArray)
+                    .put("max_tokens", maxTokens)
+                    .put("temperature", 0.6)
+                    .toString()
 
-                val code = conn.responseCode
-                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
-
-                // If gemini-flash-latest hits 429 free tier limit, gracefully fall back to gemini-flash-lite-latest
-                if (code == 429 && provider == AiProvider.GEMINI) {
-                    val fallbackBody = JSONObject()
-                        .put("model", "gemini-flash-lite-latest")
-                        .put("messages", messagesArray)
-                        .put("max_tokens", maxTokens)
-                        .put("temperature", 0.6)
-                        .toString()
-                    val fallbackConn = URL(url).openConnection() as HttpURLConnection
-                    fallbackConn.requestMethod = "POST"
-                    fallbackConn.doOutput = true
-                    fallbackConn.connectTimeout = connectTimeoutMs
-                    fallbackConn.readTimeout = readTimeoutMs
-                    fallbackConn.setRequestProperty("Authorization", "Bearer $apiKey")
-                    fallbackConn.setRequestProperty("x-goog-api-key", apiKey)
-                    fallbackConn.setRequestProperty("Content-Type", "application/json")
-                    fallbackConn.outputStream.use { it.write(fallbackBody.toByteArray()) }
-                    val fbCode = fallbackConn.responseCode
-                    val fbStream = if (fbCode in 200..299) fallbackConn.inputStream else fallbackConn.errorStream
-                    val fbText = fbStream?.bufferedReader()?.use { it.readText() } ?: ""
-                    fallbackConn.disconnect()
-                    if (fbCode in 200..299) {
-                        return ChatResult(fbCode, fbText)
+                val conn = URL(url).openConnection() as HttpURLConnection
+                try {
+                    conn.requestMethod = "POST"
+                    conn.doOutput = true
+                    conn.connectTimeout = connectTimeoutMs
+                    conn.readTimeout = readTimeoutMs
+                    conn.setRequestProperty("Authorization", "Bearer $cleanKey")
+                    if (provider == AiProvider.OPENROUTER) {
+                        conn.setRequestProperty("HTTP-Referer", "https://vanta.app")
+                        conn.setRequestProperty("X-Title", "Vanta")
                     }
-                }
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.outputStream.use { it.write(body.toByteArray()) }
 
-                return ChatResult(code, text)
-            } finally {
-                conn.disconnect()
+                    val code = conn.responseCode
+                    val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                    val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
+
+                    lastCode = code
+                    lastText = text
+
+                    if (code in 200..299) {
+                        return ChatResult(code, text)
+                    } else {
+                        android.util.Log.e("VantaAI", "OpenAI model $model failed (HTTP $code): $text")
+                    }
+                    if (code == 401 || code == 403) {
+                        // If unauthorized or invalid API key, stop trying other models
+                        break
+                    }
+                } finally {
+                    conn.disconnect()
+                }
             }
+
+            // If OpenAI compatibility endpoint fails for Gemini, try direct Google Generative AI REST API as secondary fallback
+            if (provider == AiProvider.GEMINI && lastCode !in 200..299) {
+                android.util.Log.w("VantaAI", "Falling back to Gemini Native REST API...")
+                val nativeRes = postGeminiNativeRest(systemPrompt, userPrompt, cleanKey, maxTokens, connectTimeoutMs, readTimeoutMs, imageBase64, imageMimeType)
+                if (nativeRes.statusCode in 200..299) {
+                    return nativeRes
+                }
+            }
+
+            return ChatResult(lastCode, lastText)
         } catch (e: Exception) {
             e.printStackTrace()
             return ChatResult(-1, null)
         }
+    }
+
+    /** Secondary fallback using Google's native Generative Language REST API */
+    private suspend fun postGeminiNativeRest(
+        systemPrompt: String,
+        userPrompt: String,
+        apiKey: String,
+        maxTokens: Int,
+        connectTimeoutMs: Int,
+        readTimeoutMs: Int,
+        imageBase64: String?,
+        imageMimeType: String?
+    ): ChatResult = withContext(Dispatchers.IO) {
+        val cleanKey = apiKey.trim()
+        val models = listOf("gemini-3.5-flash-lite", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-flash-latest")
+        for (model in models) {
+            try {
+                val restUrl = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
+                val contentsArray = org.json.JSONArray()
+
+                // System & User combined prompt
+                val fullText = if (systemPrompt.isNotBlank()) "$systemPrompt\n\n$userPrompt" else userPrompt
+                val partsArray = org.json.JSONArray()
+                partsArray.put(JSONObject().put("text", fullText))
+
+                if (!imageBase64.isNullOrBlank()) {
+                    partsArray.put(
+                        JSONObject().put(
+                            "inline_data",
+                            JSONObject()
+                                .put("mime_type", imageMimeType ?: "image/jpeg")
+                                .put("data", imageBase64)
+                        )
+                    )
+                }
+
+                contentsArray.put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("parts", partsArray)
+                )
+
+                val body = JSONObject()
+                    .put("contents", contentsArray)
+                    .put(
+                        "generationConfig",
+                        JSONObject()
+                            .put("maxOutputTokens", maxTokens)
+                            .put("temperature", 0.6)
+                    )
+                    .toString()
+
+                val conn = URL(restUrl).openConnection() as HttpURLConnection
+                try {
+                    conn.requestMethod = "POST"
+                    conn.doOutput = true
+                    conn.connectTimeout = connectTimeoutMs
+                    conn.readTimeout = readTimeoutMs
+                    conn.setRequestProperty("x-goog-api-key", cleanKey)
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.outputStream.use { it.write(body.toByteArray()) }
+
+                    val code = conn.responseCode
+                    val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                    val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
+
+                    android.util.Log.e("VantaAI", "Native Gemini model $model -> HTTP $code: $text")
+
+                    if (code in 200..299) {
+                        // Translate native Gemini response format to OpenAI-compatible format for consumer parser
+                        val nativeJson = JSONObject(text)
+                        val textContent = nativeJson.optJSONArray("candidates")
+                            ?.optJSONObject(0)
+                            ?.optJSONObject("content")
+                            ?.optJSONArray("parts")
+                            ?.optJSONObject(0)
+                            ?.optString("text", "") ?: ""
+
+                        val translated = JSONObject()
+                            .put(
+                                "choices",
+                                org.json.JSONArray().put(
+                                    JSONObject()
+                                        .put("message", JSONObject().put("role", "assistant").put("content", textContent))
+                                        .put("finish_reason", "stop")
+                                )
+                            )
+                            .toString()
+
+                        return@withContext ChatResult(code, translated)
+                    }
+
+                    if (code == 401 || code == 403) {
+                        break
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        ChatResult(-1, null)
     }
 
     /**
@@ -346,20 +471,14 @@ class VantaGemmaEngine(private val context: Context) {
         provider: AiProvider,
         connectTimeoutMs: Int = 30_000,
         readTimeoutMs: Int = 60_000,
-        maxTokens: Int = 300,
+        maxTokens: Int = 800,
         imageBase64: String? = null,
         imageMimeType: String? = null
     ): String? {
         if (provider == AiProvider.ON_DEVICE_LITERT) {
             val onDevice = com.vanta.app.data.ai.OnDeviceLlmManager.getInstance(context)
             if (onDevice.isModelDownloaded()) {
-                val fullPrompt = "$systemPrompt\n\n$userPrompt"
-                val result = onDevice.generate(fullPrompt)
-                // Keep the GPU engine resident for near-instant follow-up inference;
-                // release it only under memory pressure. On-device use is already
-                // gated to >= 7 GB RAM devices, so holding ~1.2 GB is safe and
-                // avoids paying the expensive model-load / shader-compile cost on
-                // every insight tap.
+                val result = onDevice.generate(systemPrompt, userPrompt)
                 onDevice.maybeReleaseUnderMemoryPressure()
                 return result
             } else {
@@ -382,16 +501,8 @@ class VantaGemmaEngine(private val context: Context) {
         val body = res.body ?: return null
         return try {
             val choice = JSONObject(body).getJSONArray("choices").getJSONObject(0)
-            val finishReason = choice.optString("finish_reason", "")
-            if (finishReason == "length") {
-                // Model hit the token cap mid-response → the text is truncated and
-                // would render as "a few words and stop". Never surface it.
-                android.util.Log.w("VantaAI", "Cloud AI response truncated by max_tokens (finish_reason=length) — using deterministic fallback")
-                return null
-            }
-            choice.getJSONObject("message")
-                .optString("content", "")
-                .ifBlank { null }
+            val content = choice.getJSONObject("message").optString("content", "").trim()
+            if (content.isNotBlank()) content else null
         } catch (e: Exception) {
             null
         }
@@ -426,7 +537,7 @@ class VantaGemmaEngine(private val context: Context) {
         }
         val res = rawCompletion(
             CoachPromptSystem.SYSTEM_PROMPT, "Reply with exactly: OK",
-            apiKey, provider, maxTokens = 5, connectTimeoutMs = 8_000, readTimeoutMs = 12_000
+            apiKey, provider, maxTokens = 20, connectTimeoutMs = 12_000, readTimeoutMs = 15_000
         )
         return when {
             res.statusCode in 200..299 -> ApiKeyCheckResult.Valid
@@ -531,9 +642,9 @@ class VantaGemmaEngine(private val context: Context) {
                     userPrompt = prompt.user,
                     apiKey = apiKey ?: "",
                     provider = provider,
-                    connectTimeoutMs = 10_000,
-                    readTimeoutMs = 15_000,
-                    maxTokens = 250
+                    connectTimeoutMs = 15_000,
+                    readTimeoutMs = 25_000,
+                    maxTokens = 600
                 )
                 if (rawOutput == null) {
                     android.util.Log.w("VantaAI", "AI coach returned nothing — using deterministic coach")
@@ -763,7 +874,7 @@ class VantaGemmaEngine(private val context: Context) {
         }
 
         if (!hasKeyOrOnDevice) {
-            return@withContext "" to false
+            return@withContext "Vanta Coach is not configured yet. Please enter your API key in Settings or download the On-Device Gemma model." to false
         }
 
         val prompt = com.vanta.app.data.ai.PhysiologyInsightPromptSystem.vantaCoachDeepPrompt(
@@ -1499,11 +1610,10 @@ class VantaGemmaEngine(private val context: Context) {
         if (hasKeyOrOnDevice) {
             try {
                 val system = """
-                    You are VANTIX, Vanta's adaptive training intelligence engine.
-                    Write exactly 2 sentences of data-driven coaching insight (STRICT LIMIT: 35 to 55 words total) about the user's
-                    current training load pattern. Be direct, specific, and motivating.
-                    No markdown. No greetings. No metric labels. No essays or rambling. Plain conversational English.
-                    Always reference the actual numbers you receive.
+                    You are Vanta's coach — the same trainer who knows this athlete personally.
+                    Write exactly 2 sentences of calm, specific coaching insight (STRICT LIMIT: 35 to 55 words total) about their
+                    current training load pattern. Reference the actual numbers you receive.
+                    No markdown. No greetings. No hype, exclamation marks, cheerleading, or motivational fluff. Plain, direct, conversational English.
                 """.trimIndent()
 
                 val modeLabel = if (core.isTrainingMode) "Training Mode" else "Daily Mover Mode"
@@ -1593,6 +1703,25 @@ class VantaGemmaEngine(private val context: Context) {
     }
 
     /**
+     * Picks a chat system prompt matched to the active engine: a long, rich one for
+     * cloud providers and a short, strictly-conversational one for the on-device model.
+     */
+    private fun buildChatSystemPrompt(
+        forOnDevice: Boolean,
+        context: android.content.Context,
+        det: com.vanta.app.data.DeterministicPhysiologyResult,
+        telemetry: HealthConnectTelemetry,
+        baseline: UserBaseline,
+        profile: com.vanta.app.data.db.UserProfileRecord?,
+        history: List<com.vanta.app.data.db.DailyMetricRecord>,
+        weatherLine: String?
+    ): String = if (forOnDevice) {
+        com.vanta.app.data.ai.OnDeviceChatPromptSystem.createSystemPrompt(context, det, telemetry, baseline, profile, history, weatherLine)
+    } else {
+        com.vanta.app.data.ai.CoachChatPromptSystem.createSystemPrompt(context, det, telemetry, baseline, profile, history, weatherLine)
+    }
+
+    /**
      * Dedicated Conversational AI Coach response generator.
      */
     suspend fun generateChatResponse(
@@ -1621,12 +1750,12 @@ class VantaGemmaEngine(private val context: Context) {
             com.vanta.app.data.ai.CoachMemoryStore.getInstance(context).recordChatTopic(userQuery)
         }
 
-        val systemPrompt = com.vanta.app.data.ai.CoachChatPromptSystem.createSystemPrompt(context, det, telemetry, baseline, profile, history)
+        val weatherLine = com.vanta.app.data.weather.WeatherService.currentWeatherLine(context)
+        val systemPrompt = buildChatSystemPrompt(effectiveProvider == AiProvider.ON_DEVICE_LITERT, context, det, telemetry, baseline, profile, history, weatherLine)
         val fullConversation = com.vanta.app.data.ai.CoachChatPromptSystem.buildConversationPrompt(historyMessages, userQuery)
 
         if (effectiveProvider == AiProvider.ON_DEVICE_LITERT && isOnDeviceReady) {
-            val fullPrompt = "$systemPrompt\n\n$fullConversation"
-            val output = onDeviceMgr.generate(fullPrompt, imageBase64)
+            val output = onDeviceMgr.generate(systemPrompt, fullConversation, imageBase64)
             if (!output.isNullOrBlank()) return@withContext com.vanta.app.data.ai.CoachChatPromptSystem.sanitizeOutput(output)
         }
 
@@ -1638,7 +1767,7 @@ class VantaGemmaEngine(private val context: Context) {
                 provider = effectiveProvider,
                 connectTimeoutMs = 30_000,
                 readTimeoutMs = 60_000,
-                maxTokens = if (imageBase64 != null) 500 else 300,
+                maxTokens = if (imageBase64 != null) 700 else 280,
                 imageBase64 = imageBase64,
                 imageMimeType = imageMimeType
             )?.trim()
@@ -1682,14 +1811,33 @@ class VantaGemmaEngine(private val context: Context) {
             com.vanta.app.data.ai.CoachMemoryStore.getInstance(context).recordChatTopic(userQuery)
         }
 
-        val systemPrompt = com.vanta.app.data.ai.CoachChatPromptSystem.createSystemPrompt(context, det, telemetry, baseline, profile, history)
+        val weatherLine = com.vanta.app.data.weather.WeatherService.currentWeatherLine(context)
+        val systemPrompt = buildChatSystemPrompt(effectiveProvider == AiProvider.ON_DEVICE_LITERT, context, det, telemetry, baseline, profile, history, weatherLine)
         val fullConversation = com.vanta.app.data.ai.CoachChatPromptSystem.buildConversationPrompt(historyMessages, userQuery)
 
+        // Chat-only llama.cpp engine — used when on-device chat is selected AND the
+        // GGUF model is downloaded. Faster than MediaPipe on TTFT/throughput; gracefully
+        // falls back to LiteRT-LM / cloud if the native lib or model is missing.
+        val llama = com.vanta.app.data.ai.VantaLllamaEngine(context)
+        if (effectiveProvider == AiProvider.ON_DEVICE_LITERT && llama.isAvailable()) {
+            if (llama.init()) {
+                try {
+                    // Real per-token streaming from the GPU — first token arrives as soon
+                    // as the prompt finishes decoding (true TTFT, not a word-split delay).
+                    llama.generateStreaming(systemPrompt, fullConversation, 120).collect { piece ->
+                        if (piece.isNotEmpty()) emit(piece)
+                    }
+                } finally {
+                    llama.release()
+                }
+            }
+            return@flow
+        }
+
         if (effectiveProvider == AiProvider.ON_DEVICE_LITERT && isOnDeviceReady) {
-            val fullPrompt = "$systemPrompt\n\n$fullConversation"
             var prefixStripped = false
             var buffer = StringBuilder()
-            onDeviceMgr.generateStreaming(fullPrompt, imageBase64).collect { chunk ->
+            onDeviceMgr.generateStreaming(systemPrompt, fullConversation, imageBase64).collect { chunk ->
                 if (!prefixStripped) {
                     buffer.append(chunk)
                     val raw = buffer.toString()

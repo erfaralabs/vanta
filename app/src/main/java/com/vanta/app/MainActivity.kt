@@ -1,8 +1,6 @@
 package com.vanta.app
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -19,13 +17,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         NotificationPoster.ensureChannel(this)
 
-        // Ask for notification permission once on Android 13+ so EVERY user gets the
-        // active-app entry + AI coach notifications without digging into Settings.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(NotificationPoster.NOTIFICATION_PERMISSION) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(NotificationPoster.NOTIFICATION_PERMISSION), 1001)
-        }
+        // Notification permission is requested at a calm, contextual moment (right
+        // after onboarding completes) instead of a cold-launch interrupt — see
+        // VantaNavGraph for the setup + welcome notification handoff.
 
         // Foreground service: keeps the telemetry sync + AI notifications alive in
         // the background and makes Vanta appear under "Active apps" in the shade.
@@ -38,8 +32,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Arm the daily 08:10 morning / 21:30 night template check-in alarms.
-        com.vanta.app.data.notification.CheckInScheduler.scheduleAll(this)
+        // Daily check-in alarms are armed once onboarding completes (see VantaNavGraph),
+        // so a user who abandons onboarding never gets a phantom "Good morning".
         com.vanta.app.widget.VantaWidgetUpdater.updateAllWidgets(this)
         com.vanta.app.ui.dev.DevResolutionManager.init(this)
         setContent {
@@ -60,5 +54,7 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         // Completely release and unload on-device LLM model & GPU memory when app is minimized or backgrounded
         com.vanta.app.data.ai.OnDeviceLlmManager.getInstance(applicationContext).unloadEngine()
+        // Also drop the llama.cpp weights so we never pin ~1.5 GB while idle in the background.
+        runCatching { com.vanta.app.data.ai.VantaLllamaEngine(applicationContext).unload() }
     }
 }

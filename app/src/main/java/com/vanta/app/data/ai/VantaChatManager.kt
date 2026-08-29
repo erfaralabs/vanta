@@ -131,17 +131,21 @@ class VantaChatManager private constructor(private val context: Context) {
         if (last.role == "assistant") {
             val updatedLast = last.copy(content = chunk)
             val updatedMessages = cur.messages.dropLast(1) + updatedLast
-            val updatedSession = cur.copy(messages = updatedMessages)
-            _currentSession.value = updatedSession
-
-            val sessionList = _sessions.value.toMutableList()
-            val idx = sessionList.indexOfFirst { it.id == updatedSession.id }
-            if (idx >= 0) {
-                sessionList[idx] = updatedSession
-                _sessions.value = sessionList
-                persistSessions()
-            }
+            _currentSession.value = cur.copy(messages = updatedMessages)
+            // NOTE: do NOT rebuild `_sessions` or persist here. Persisting the full
+            // conversation (JSON serialize + SharedPreferences) on every token janks
+            // streaming. We persist once when the stream finishes (see commitCurrentSession).
         }
+    }
+
+    /** Persists the finished session once (called after the stream completes). */
+    fun commitCurrentSession() {
+        val updatedSession = _currentSession.value
+        if (updatedSession.messages.isEmpty()) return
+        val sessionList = _sessions.value.filter { it.id != updatedSession.id }.toMutableList()
+        sessionList.add(0, updatedSession)
+        _sessions.value = sessionList
+        persistSessions()
     }
 
     private fun loadSessionsFromDisk() {

@@ -311,22 +311,37 @@ fun PhysiologyDetailScreen(
                                     haptics.tick()
                                     if (isVantaCoachLoading) return@clickable
 
-                                    if (isVantaCoachExpanded) {
+                                    val isFailedText = streamedCoachInsightText.contains("requires an active AI") ||
+                                        streamedCoachInsightText.contains("No internet connection") ||
+                                        streamedCoachInsightText.contains("not configured yet") ||
+                                        (vantaCoachDeepInsight?.second == false)
+
+                                    if (isVantaCoachExpanded && !isFailedText && streamedCoachInsightText.isNotBlank()) {
                                         isVantaCoachExpanded = false
-                                    } else if (vantaCoachDeepInsight != null || streamedCoachInsightText.isNotBlank()) {
+                                    } else if (!isFailedText && vantaCoachDeepInsight?.second == true) {
                                         isVantaCoachExpanded = true
                                     } else {
                                         isVantaCoachExpanded = true
                                         isVantaCoachLoading = true
                                         streamedCoachInsightText = ""
+                                        vantaCoachDeepInsight = null
                                         coroutineScope.launch {
-                                            aiViewModel.streamVantaCoachInsight(metric, context).collect { chunk ->
-                                                streamedCoachInsightText += chunk
+                                            try {
+                                                aiViewModel.streamVantaCoachInsight(metric, context).collect { chunk ->
+                                                    streamedCoachInsightText += chunk
+                                                }
+                                                if (streamedCoachInsightText.isNotBlank()) {
+                                                    val success = !streamedCoachInsightText.contains("requires an active AI") &&
+                                                        !streamedCoachInsightText.contains("No internet connection") &&
+                                                        !streamedCoachInsightText.contains("not configured yet")
+                                                    vantaCoachDeepInsight = streamedCoachInsightText to success
+                                                }
+                                            } catch (e: Exception) {
+                                                streamedCoachInsightText = "Vanta Coach is unable to reach AI servers. Please check your connection or API key."
+                                                vantaCoachDeepInsight = streamedCoachInsightText to false
+                                            } finally {
+                                                isVantaCoachLoading = false
                                             }
-                                            if (streamedCoachInsightText.isNotBlank()) {
-                                                vantaCoachDeepInsight = streamedCoachInsightText to true
-                                            }
-                                            isVantaCoachLoading = false
                                         }
                                     }
                                 }

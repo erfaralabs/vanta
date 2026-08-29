@@ -47,6 +47,18 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
         ERROR
     }
 
+    /**
+     * Where the ~1.18 GB on-device model weights live on disk. The user picks this
+     * in Settings so a large download never silently bloats private app storage.
+     */
+    enum class ModelStorageLocation {
+        /** App-private external storage — deleted automatically on uninstall. */
+        APP_STORAGE,
+
+        /** User-visible Public Downloads folder — survives reinstall, can live on SD. */
+        PUBLIC_DOWNLOADS
+    }
+
     private val _state = MutableStateFlow(ModelState.NOT_DOWNLOADED)
     val state: StateFlow<ModelState> = _state.asStateFlow()
 
@@ -60,17 +72,21 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
 
     companion object {
         private const val TAG = "OnDeviceLlm"
-        const val MODEL_FILENAME = "gemma-4-E2B-it.litertlm"
-        const val MODEL_DISPLAY_NAME = "Gemma 4 E2B (LiteRT-LM)"
-        const val ESTIMATED_SIZE_BYTES = 1_180_000_000L // ~1.18 GB
+        const val MODEL_FILENAME = "Qwen_Qwen3-VL-2B-Instruct-Q4_K_M.gguf"
+        const val MODEL_DISPLAY_NAME = "Qwen3-VL-2B (Q4_K_M)"
+        const val ESTIMATED_SIZE_BYTES = 1_107_410_240L // ~1.1 GB
         const val MIN_MODEL_SIZE_BYTES = 500_000_000L   // >= 500 MB required for valid model
         /**
          * Max OUTPUT tokens for on-device generation. Applied as ConversationConfig
          * maxOutputToken so the engine's (possibly small) default cap can never cut
-         * an insight or chat reply off mid-sentence. 512 tokens ≈ 380 words — far
-         * above the app's 40–65 word coaching lines.
+         * an insight or chat reply off mid-sentence. 384 tokens ≈ 285 words keeps
+         * chat replies tight and premium (matching the brevity guidance in the
+         * coach system prompt) while leaving headroom for insights.
          */
-        const val MAX_SEQUENCE_TOKENS = 512
+        const val MAX_SEQUENCE_TOKENS = 384
+
+        /** SharedPreferences key for the user's chosen on-device model storage location. */
+        const val STORAGE_LOCATION_PREF = "model_storage_location"
 
         @Volatile
         private var instance: OnDeviceLlmManager? = null
@@ -82,14 +98,44 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
         }
 
         fun getModelFile(context: Context): File {
-            val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+            // Read the pref directly (not via getInstance) so this static helper never
+            // re-enters getInstance during OnDeviceLlmManager construction.
+            val prefs = context.getSharedPreferences("vanta_ai_settings", Context.MODE_PRIVATE)
+            val raw = prefs.getString(STORAGE_LOCATION_PREF, null)
+            val location = runCatching { ModelStorageLocation.valueOf(raw ?: "") }
+                .getOrDefault(ModelStorageLocation.APP_STORAGE)
+            val dir = when (location) {
+                ModelStorageLocation.PUBLIC_DOWNLOADS ->
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                ModelStorageLocation.APP_STORAGE ->
+                    context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+            }
             if (!dir.exists()) dir.mkdirs()
             return File(dir, MODEL_FILENAME)
         }
     }
 
     init {
+        cleanupStaleFiles()
         checkModelAvailability()
+    }
+
+    /**
+     * Storage safeguard: removes any partial model file (an interrupted DownloadManager
+     * pull) and any orphaned parallel-download temp parts (`.vanta-dl`). Without this, a
+     * killed 1.1 GB download could leave ~1.2 GB of temp files behind and grow on retries.
+     */
+    private fun cleanupStaleFiles() {
+        runCatching {
+            val file = getModelFile(context)
+            val dir = file.parentFile ?: return@runCatching
+            File(dir, ".vanta-dl").deleteRecursively()
+            dir.listFiles()?.forEach { f ->
+                if (f.name == MODEL_FILENAME && f.length() > 0L && f.length() < MIN_MODEL_SIZE_BYTES) {
+                    f.delete()
+                }
+            }
+        }
     }
 
     private fun preloadOpenCl() {
@@ -144,6 +190,19 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
 
     fun setDownloadingState() {
         _state.value = ModelState.DOWNLOADING
+    }
+
+    fun getModelStorageLocation(): ModelStorageLocation {
+        val prefs = context.getSharedPreferences("vanta_ai_settings", Context.MODE_PRIVATE)
+        val raw = prefs.getString(STORAGE_LOCATION_PREF, null)
+        return runCatching { ModelStorageLocation.valueOf(raw ?: "") }
+            .getOrDefault(ModelStorageLocation.APP_STORAGE)
+    }
+
+    fun setModelStorageLocation(location: ModelStorageLocation) {
+        context.getSharedPreferences("vanta_ai_settings", Context.MODE_PRIVATE)
+            .edit().putString(STORAGE_LOCATION_PREF, location.name).apply()
+        checkModelAvailability()
     }
 
     /**
@@ -296,12 +355,33 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
      * Streams tokens as they are generated by LiteRT-LM Vulkan/OpenCL GPU Engine.
      * Protects engine with inferenceMutex across the full streaming session.
      */
-    fun generateStreaming(prompt: String, imageBase64: String? = null): Flow<String> = callbackFlow<String> {
+    fun generateStreaming(system: String, user: String, imageBase64: String? = null): Flow<String> = callbackFlow<String> {
         val modelFile = getModelFile(context)
         if (!modelFile.exists() || modelFile.length() < MIN_MODEL_SIZE_BYTES) {
             close()
             return@callbackFlow
         }
+
+        // Whole-app on-device path runs through llama.cpp when the GGUF is present.
+        val llama = com.vanta.app.data.ai.VantaLllamaEngine(context)
+        if (llama.isAvailable()) {
+            val effSystem = if (imageBase64 != null)
+                "$system\n[Image attached — this on-device model is text-only; ask them to describe it]"
+            else system
+            if (llama.init()) {
+                val text = llama.generate(effSystem, user)
+                llama.release()
+                val words = text.split(" ")
+                for (i in words.indices) {
+                    trySend(if (i == 0) words[i] else " " + words[i])
+                    kotlinx.coroutines.delay(12)
+                }
+            }
+            close()
+            return@callbackFlow
+        }
+
+        val prompt = "$system\n\n$user"
 
         val ready = try {
             ensureEngineLoaded()
@@ -373,8 +453,17 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
     /**
      * Suspendingly generates a complete response on GPU with automatic CPU fallback.
      */
-    suspend fun generate(prompt: String, imageBase64: String? = null): String? = withContext(Dispatchers.IO) {
+    suspend fun generate(system: String, user: String, imageBase64: String? = null): String? = withContext(Dispatchers.IO) {
         if (!isModelDownloaded()) return@withContext null
+        // Whole-app on-device model runs through llama.cpp (Vulkan) — one GGUF.
+        val llama = com.vanta.app.data.ai.VantaLllamaEngine(context)
+        if (llama.isAvailable()) {
+            val effSystem = if (imageBase64 != null)
+                "$system\n[Image attached — this on-device model is text-only; ask them to describe it]"
+            else system
+            return@withContext if (llama.init()) llama.generate(effSystem, user).also { llama.release() } else null
+        }
+        val prompt = "$system\n\n$user"
         val ready = ensureEngineLoaded()
         var currentEngine = engine
         if (!ready || currentEngine == null) return@withContext null
@@ -514,8 +603,17 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
                 Log.w(TAG, "Error closing engine: ${e.message}")
             }
             engine = null
-            val file = getModelFile(context)
-            val deleted = if (file.exists()) file.delete() else true
+            // Delete the model wherever it may reside — the storage location may have
+            // changed since it was downloaded.
+            val candidates = listOf(
+                getModelFile(context),
+                File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir, MODEL_FILENAME),
+                File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), MODEL_FILENAME)
+            )
+            var deleted = true
+            for (f in candidates.distinctBy { it.absolutePath }) {
+                if (f.exists() && !f.delete()) deleted = false
+            }
             _state.value = ModelState.NOT_DOWNLOADED
             deleted
         } finally {

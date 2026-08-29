@@ -55,7 +55,7 @@ data class DeterministicPhysiologyResult(
  *     • Recent training history (rolling 7-day average strain = chronic load)
  *   with base weights 55% / 25% / 20%.
  * - When sleep IS tracked, sleep duration and the genuine overnight RHR join the
- *   blend: 40% strain / 15% time / 15% history / 20% sleep / 10% RHR.
+ *   blend: 35% strain / 12% time / 11% history / 30% sleep / 12% RHR.
  * - Missing data is NEVER faked or replaced with a hardcoded value: absent inputs
  *   drop out and the remaining weights rebalance proportionally.
  * - Clamped between 30% and 100%.
@@ -475,11 +475,12 @@ class VantaDeterministicPhysiologyEngine(
          * the caller leaves the component absent and rebalances the weights.
          */
         fun scoreSleep(sleepMinutes: Int): Double = when {
-            sleepMinutes < 240 -> 45.0
-            sleepMinutes < 360 -> 60.0
-            sleepMinutes < 420 -> 72.0
-            sleepMinutes < 480 -> 85.0
-            sleepMinutes < 540 -> 95.0
+            sleepMinutes < 240 -> 35.0   // under 4h — heavy penalty
+            sleepMinutes < 300 -> 52.0   // 4-5h
+            sleepMinutes < 360 -> 64.0   // 5-6h
+            sleepMinutes < 420 -> 76.0   // 6-7h
+            sleepMinutes < 480 -> 88.0   // 7-8h
+            sleepMinutes < 540 -> 96.0   // 8-9h
             else -> 100.0
         }
 
@@ -489,7 +490,7 @@ class VantaDeterministicPhysiologyEngine(
          * never fabricated or replaced with a hardcoded value.
          *
          *   • No sleep (default): 55% previous strain / 25% time since workout / 20% training history
-         *   • Sleep tracked:      40% strain / 15% time / 15% history / 20% sleep / 10% RHR (when genuine)
+         *   • Sleep tracked:      35% strain / 12% time / 11% history / 30% sleep / 12% RHR (when genuine)
          *
          * Any absent component's weight is redistributed across the present ones,
          * and the result is clamped to the documented 30–100 range.
@@ -503,11 +504,11 @@ class VantaDeterministicPhysiologyEngine(
         ): Int {
             val hasSleep = scoreSleep != null
             val entries = mutableListOf<Pair<Double, Double>>()
-            entries += scorePrevStrain to (if (hasSleep) 40.0 else 55.0)
-            if (scoreTimeSinceWorkout != null) entries += scoreTimeSinceWorkout to (if (hasSleep) 15.0 else 25.0)
-            if (scoreTrainingHistory != null) entries += scoreTrainingHistory to (if (hasSleep) 15.0 else 20.0)
-            if (scoreSleep != null) entries += scoreSleep to 20.0
-            if (scoreRhr != null) entries += scoreRhr to 10.0
+            entries += scorePrevStrain to (if (hasSleep) 35.0 else 55.0)
+            if (scoreTimeSinceWorkout != null) entries += scoreTimeSinceWorkout to (if (hasSleep) 12.0 else 25.0)
+            if (scoreTrainingHistory != null) entries += scoreTrainingHistory to (if (hasSleep) 11.0 else 20.0)
+            if (scoreSleep != null) entries += scoreSleep to 30.0
+            if (scoreRhr != null) entries += scoreRhr to 12.0
             val totalWeight = entries.sumOf { it.second }
             val blended = entries.sumOf { it.first * it.second } / totalWeight
             return blended.roundToInt().coerceIn(30, 100)

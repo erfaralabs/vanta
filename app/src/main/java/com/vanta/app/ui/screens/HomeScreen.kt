@@ -426,17 +426,7 @@ fun HomeScreen(
             // ── Health Connect Data Header ───────────────────────────────────────
             item(key = "hc_header", contentType = "section_header") {
                 Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Health Telemetry",
-                            color = TextPrimary,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
+                    SectionHeader(title = "Health Telemetry", trailing = "Live")
                     Spacer(Modifier.height(12.dp))
                 }
             }

@@ -72,7 +72,7 @@ fun AdaptiveCoreScreen(
                             )
                         )
                         Text(
-                            text = "Adaptive intelligence beyond calibration",
+                            text = "Training load, recovery & fitness age",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodyMedium
                         )
@@ -227,7 +227,7 @@ fun AdaptiveCoreScreen(
                                 modifier = Modifier.padding(bottom = 12.dp)
                             )
                             Text(
-                                text = "VANTIX CORE activates at 14 days",
+                                text = "Fitness Age is ready at 14 days of data",
                                 color = TextPrimary,
                                 style = MaterialTheme.typography.titleSmall.copy(
                                     fontWeight = FontWeight.Bold,
@@ -237,7 +237,7 @@ fun AdaptiveCoreScreen(
                             )
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                text = "Keep training. Once you have 14 days of data, Adaptive Core will analyze your ATL, CTL, and training load balance to continuously improve every number in the app.",
+                                text = "With 14+ days of data, Vanta estimates your fitness age from training load, recovery and activity trends.",
                                 color = TextSecondary,
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     lineHeight = 18.sp,
@@ -491,7 +491,7 @@ fun AdaptiveCoreScreen(
             if (core != null && isVantixAvailable) {
                 item(key = "vantix_ai_card") {
                     Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                        CoreSectionHeader("VANTIX Intelligence")
+                        CoreSectionHeader("Coach insight")
                         Spacer(Modifier.height(12.dp))
                         CoreCard {
                             // Header row
@@ -510,7 +510,7 @@ fun AdaptiveCoreScreen(
                                             .background(NeonCyan, CircleShape)
                                     )
                                     Text(
-                                        text = "⚡ VANTIX Coach",
+                                        text = "Vanta Coach",
                                         color = NeonCyan,
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.ExtraBold,
@@ -575,7 +575,7 @@ fun AdaptiveCoreScreen(
             if (core != null && bioAge != null) {
                 item(key = "bio_age_card") {
                     Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                        CoreSectionHeader("VANTIX Biological Age")
+                        CoreSectionHeader("Vanta Fitness Age")
                         Spacer(Modifier.height(12.dp))
                         BioAgeCard(bioAge = bioAge)
                         Spacer(Modifier.height(20.dp))
@@ -876,7 +876,7 @@ private fun BioAgeCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "BIOLOGICAL AGE",
+                text = "VANTA FITNESS AGE",
                 color = TextTertiary,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.ExtraBold,
@@ -944,7 +944,7 @@ private fun BioAgeCard(
                     )
                 )
                 Text(
-                    text = "YEARS OLD",
+                    text = "FITNESS AGE",
                     color = TextTertiary,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,
@@ -969,7 +969,7 @@ private fun BioAgeCard(
                 fontSize = 12.sp
             )
             Text(
-                text = if (isYounger) "↓ ${"%.1f".format(absDelta)} yrs younger" else "↑ ${"%.1f".format(absDelta)} yrs older",
+                text = if (isYounger) "${"%.1f".format(absDelta)} yrs younger" else "${"%.1f".format(absDelta)} yrs older",
                 color = if (isYounger) NeonCyan else Color(0xFFFF5252),
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp
@@ -981,7 +981,7 @@ private fun BioAgeCard(
             val isTrendYounger = bioAge.thirtyDayDelta <= 0
             val absTrend = kotlin.math.abs(bioAge.thirtyDayDelta)
             Text(
-            text = if (isTrendYounger) "📉 ${"%.1f".format(absTrend)} years younger than 30 days ago" else "📈 ${"%.1f".format(absTrend)} years older than 30 days ago",
+            text = if (isTrendYounger) "${"%.1f".format(absTrend)} years younger than 30 days ago" else "${"%.1f".format(absTrend)} years older than 30 days ago",
                 color = TextSecondary,
                 fontSize = 11.sp,
                 textAlign = TextAlign.Center,
@@ -996,7 +996,7 @@ private fun BioAgeCard(
         Spacer(Modifier.height(12.dp))
 
         Text(
-            text = "PHYSIOLOGICAL DRIVERS",
+            text = "WHAT DRIVES THIS",
             color = TextTertiary,
             style = MaterialTheme.typography.labelSmall.copy(
                 fontWeight = FontWeight.Bold,
