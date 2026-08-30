@@ -63,3 +63,11 @@ keystore.properties
 *.tflite
 *.task
 google-services.json
+
+# vantaweb: separate marketing/site repo, not part of the app source
+vantaweb/
+
+# Native/CMake + Kotlin build caches (safe to ignore, regenerated on build)
+.cxx/
+.kotlin/
+*.hprof
