@@ -632,7 +632,7 @@ fun SettingsScreen(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "Independently assign Cloud API (Gemini/DeepSeek/Mistral/OpenRouter) or On-Device Qwen3 for Home Analysis and AI Chat.",
+                    text = "Independently assign Cloud API (Gemini/DeepSeek/Mistral/OpenRouter) or On-Device Gemma 4 E2B for Home Analysis and AI Chat.",
                     color = TextSecondary,
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
@@ -707,7 +707,7 @@ fun SettingsScreen(
                             text = when {
                                 !isRamSufficient -> "⚡ On-Device (< 8GB RAM)"
                                 !isModelOnDisk -> "⚡ On-Device (not installed)"
-                                else -> "⚡ On-Device Qwen3"
+                                else -> "⚡ On-Device Gemma 4 E2B"
                             },
                             color = if (!onDeviceSelectable) TextSecondary.copy(alpha = 0.35f) else if (!isCloudAnalysis) NeonCyan else TextSecondary,
                             fontSize = 11.sp,
@@ -1075,7 +1075,7 @@ fun SettingsScreen(
                             text = when {
                                 !isRamSufficient -> "⚡ On-Device (< 8GB RAM)"
                                 !isModelOnDisk -> "⚡ On-Device (not installed)"
-                                else -> "⚡ On-Device Qwen3"
+                                else -> "⚡ On-Device Gemma 4 E2B"
                             },
                             color = if (!onDeviceSelectable) TextSecondary.copy(alpha = 0.35f) else if (!isCloudChat) NeonCyan else TextSecondary,
                             fontSize = 11.sp,
@@ -1406,9 +1406,9 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(16.dp))
 
-                // ── 3. On-Device Qwen3 Model Status & Controls ─────────────
+                // ── 3. On-Device Gemma 4 E2B Model Status & Controls ─────────────
                 Text(
-                    text = "📱 On-Device Qwen3 Model",
+                    text = "📱 On-Device Gemma 4 E2B Model",
                     color = TextPrimary,
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -1730,7 +1730,7 @@ fun SettingsScreen(
                                         } else {
                                             Toast.makeText(
                                                 context,
-                                                "Device has ${"%.1f".format(totalRamGb)} GB RAM. 8 GB required for on-device Gemma 4B.",
+                                                "Device has ${"%.1f".format(totalRamGb)} GB RAM. 8 GB required for on-device Gemma 4 E2B.",
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         }
@@ -1746,7 +1746,7 @@ fun SettingsScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = if (isRamSufficient) "⬇️ DOWNLOAD QWEN3-VL-2B (1.1 GB)" else "🔒 8 GB RAM REQUIRED (${"%.1f".format(totalRamGb)} GB DETECTED)",
+                                        text = if (isRamSufficient) "⬇️ DOWNLOAD GEMMA 4 E2B (2.4 GB)" else "🔒 8 GB RAM REQUIRED (${"%.1f".format(totalRamGb)} GB DETECTED)",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 11.sp
                                     )

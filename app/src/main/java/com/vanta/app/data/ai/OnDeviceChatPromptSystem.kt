@@ -11,7 +11,7 @@ import java.time.ZonedDateTime
 import kotlin.math.roundToInt
 
 /**
- * Dedicated, lightweight chat prompt for the ON-DEVICE model (Qwen3-VL 2B / LiteRT).
+ * Dedicated, lightweight chat prompt for the ON-DEVICE model (Gemma 4 E2B / LiteRT).
  *
  * Deliberately short and unambiguous. A small model is far more likely to recite a
  * metric (e.g. "your steps are 5.5k") when it is handed a wall of numbers, so this

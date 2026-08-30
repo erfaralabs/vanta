@@ -72,9 +72,9 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
 
     companion object {
         private const val TAG = "OnDeviceLlm"
-        const val MODEL_FILENAME = "Qwen_Qwen3-VL-2B-Instruct-Q4_K_M.gguf"
-        const val MODEL_DISPLAY_NAME = "Qwen3-VL-2B (Q4_K_M)"
-        const val ESTIMATED_SIZE_BYTES = 1_107_410_240L // ~1.1 GB
+        const val MODEL_FILENAME = "gemma-4-E2B-it.litertlm"
+        const val MODEL_DISPLAY_NAME = "Gemma 4 E2B (Vision + Text)"
+        const val ESTIMATED_SIZE_BYTES = 2_588_147_712L // ~2.4 GB (litertlm)
         const val MIN_MODEL_SIZE_BYTES = 500_000_000L   // >= 500 MB required for valid model
         /**
          * Max OUTPUT tokens for on-device generation. Applied as ConversationConfig

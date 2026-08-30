@@ -73,9 +73,9 @@ class ModelDownloadManager private constructor(private val context: Context) {
         private const val TAG = "ModelDownload"
         // Number of concurrent byte-range connections. Higher = faster big-file downloads.
         private const val DOWNLOAD_THREADS = 6
-        // Verified direct Qwen3-VL-2B Q4_K_M GGUF download URL (single whole-app model).
+        // Verified direct Gemma 4 E2B LiteRT-LM (vision+text) download URL.
         const val DEFAULT_MODEL_URL =
-            "https://huggingface.co/bartowski/Qwen_Qwen3-VL-2B-Instruct-GGUF/resolve/main/Qwen_Qwen3-VL-2B-Instruct-Q4_K_M.gguf"
+            "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm"
 
         @Volatile
         private var instance: ModelDownloadManager? = null
@@ -307,8 +307,8 @@ class ModelDownloadManager private constructor(private val context: Context) {
     private fun startDownloadManager(url: String, hfToken: String?) {
         try {
             val request = DownloadManager.Request(Uri.parse(url))
-                .setTitle("Vanta AI: Qwen3-VL-2B")
-                .setDescription("Downloading on-device intelligence model (~1.1 GB)...")
+                .setTitle("Vanta AI: Gemma 4 E2B")
+                .setDescription("Downloading on-device vision+text model (~2.4 GB)...")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(false)
