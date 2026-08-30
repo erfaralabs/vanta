@@ -198,7 +198,7 @@ fun HomeScreen(
                 recoveryDelta >= 0 -> RecoveryGreen
                 else -> HeartRateRed
             },
-            supporting = "7d avg ${recentAvgRecovery.toInt()}%"
+            supporting = "7d avg ${recentAvgRecovery.toInt()}%" + if (userBaseline.isLearningPhase) " · estimating" else ""
         ),
         MetricInfo(
             title = "Strain Target", value = strainTargetText, unit = if (strainLeft <= 0.05) "" else "left today",

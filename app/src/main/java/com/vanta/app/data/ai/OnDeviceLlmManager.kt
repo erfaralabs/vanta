@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
@@ -64,6 +65,10 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
 
     @Volatile
     private var engine: Engine? = null
+    /** Wall-clock (uptime) when the engine last transitioned to READY, used so we never
+     * evict a freshly-loaded model right after we paid for its load. */
+    @Volatile
+    private var lastEngineLoadMs: Long = 0L
     private val inferenceMutex = Mutex()
     private val lifecycleMutex = Mutex()
 
@@ -87,6 +92,13 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
 
         /** SharedPreferences key for the user's chosen on-device model storage location. */
         const val STORAGE_LOCATION_PREF = "model_storage_location"
+
+        /** Keep the engine resident at least this long after load before it may be evicted. */
+        const val RESIDENT_MIN_MS = 90_000L
+
+        /** Only evict when free memory drops below this. Was 700MB, which (right after
+         *  loading a ~2.4GB model) is nearly always true and caused load/evict thrash. */
+        const val RELEASE_THRESHOLD_MB = 300L
 
         @Volatile
         private var instance: OnDeviceLlmManager? = null
@@ -299,6 +311,7 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
                     gpuInst.initialize()
                     engine = gpuInst
                     _state.value = ModelState.READY
+                    lastEngineLoadMs = SystemClock.elapsedRealtime()
                     Log.d(TAG, "LiteRT-LM GPU Engine initialized successfully.")
                     return@withLock true
                 } catch (gpuEx: Throwable) {
@@ -321,6 +334,7 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
                 cpuInst.initialize()
                 engine = cpuInst
                 _state.value = ModelState.READY
+                lastEngineLoadMs = SystemClock.elapsedRealtime()
                 Log.d(TAG, "LiteRT-LM CPU Engine ($cpuThreads threads) initialized successfully.")
                 return@withLock true
             } catch (cpuEx: Throwable) {
@@ -518,14 +532,18 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
     }
 
     /**
-     * Keeps the loaded engine resident for fast follow-up GPU inference, releasing
-     * it only when the device is under memory pressure. Avoids paying the expensive
-     * model-load / shader-compile cost on every insight tap.
+     * Keeps the loaded engine resident for fast follow-up inference, releasing it only
+     * under genuine, sustained memory pressure. We NEVER evict a freshly-loaded model:
+     * loading ~2.4GB and recompiling shaders on every Home refresh is what made the
+     * coach feel slow. Residency is the whole point — see the class docstring.
      */
     fun maybeReleaseUnderMemoryPressure() {
+        if (_state.value != ModelState.READY) return
+        val residentForMs = SystemClock.elapsedRealtime() - lastEngineLoadMs
+        if (residentForMs < RESIDENT_MIN_MS) return
         val freeMb = getAvailableMemoryMb()
-        if (freeMb < 700) {
-            Log.w(TAG, "Low memory ($freeMb MB available) — releasing on-device engine.")
+        if (freeMb < RELEASE_THRESHOLD_MB) {
+            Log.w(TAG, "Low memory ($freeMb MB available, resident ${residentForMs / 1000}s) — releasing on-device engine.")
             unloadEngine()
         }
     }
@@ -538,6 +556,7 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
         try {
             engine?.close()
             engine = null
+            lastEngineLoadMs = 0L
             if (isModelDownloaded()) {
                 _state.value = ModelState.DOWNLOADED
             }

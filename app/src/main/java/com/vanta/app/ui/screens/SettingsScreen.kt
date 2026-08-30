@@ -95,6 +95,7 @@ fun SettingsScreen(
     var heartRate by remember { mutableStateOf(settings.heartRate) }
     var morningCheckIn by remember { mutableStateOf(settings.morningCheckIn) }
     var nightCheckIn by remember { mutableStateOf(settings.nightCheckIn) }
+    var intradayNudges by remember { mutableStateOf(settings.intradayNudges) }
     var aiLimit by remember { mutableStateOf(settings.aiLimitPerDay) }
 
     // Reload the toggle UI after an import restores prefs from a .vanta file.
@@ -109,6 +110,7 @@ fun SettingsScreen(
         heartRate = settings.heartRate
         morningCheckIn = settings.morningCheckIn
         nightCheckIn = settings.nightCheckIn
+        intradayNudges = settings.intradayNudges
     }
 
     val scope = rememberCoroutineScope()
@@ -568,6 +570,13 @@ fun SettingsScreen(
                     checked = goals && enabled,
                     onCheckedChange = { goals = it; settings.goals = it }
                 )
+                HorizontalDivider(color = Color(0x14FFFFFF), modifier = Modifier.padding(vertical = 6.dp))
+                NotificationSwitchRow(
+                    title = "Midday & evening nudges",
+                    subtitle = "A 'Good afternoon' and an evening wind-down from your live data.",
+                    checked = intradayNudges && enabled,
+                    onCheckedChange = { intradayNudges = it; settings.intradayNudges = it }
+                )
             }
         }
 
@@ -579,7 +588,7 @@ fun SettingsScreen(
             ) {
                 NotificationSwitchRow(
                     title = "Heart rate insights",
-                    subtitle = "Strain spikes and recovery changes are driven by HR/RHR. You're not wearing your watch daily, so this is OFF — no HR data will appear in any message.",
+                    subtitle = "Controls whether heart rate / resting-HR appears in AI coach messages. You're not wearing your watch daily, so it's OFF — no HR data in any message.",
                     checked = heartRate && enabled,
                     onCheckedChange = { heartRate = it; settings.heartRate = it }
                 )
@@ -935,6 +944,8 @@ fun SettingsScreen(
                         colors = whiteSleekSwitchColors()
                     )
                 }
+
+                Spacer(Modifier.height(10.dp))
 
                 // ── VANTIX AI Coach Toggle ─────────────────────────────────────
                 val isVantixToggled by vm.isVantixEnabled.collectAsState()

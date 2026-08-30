@@ -3,6 +3,7 @@ package com.vanta.app.data.notification
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.vanta.app.R
 import com.vanta.app.data.db.VantaDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,27 +46,38 @@ class CheckInReceiver : BroadcastReceiver() {
     }
 
     private fun postMorning(context: Context, name: String, recovery: Int?, energy: Int?, strain: Double?) {
-        val greeting = if (name.isNotBlank()) "Good morning, $name." else "Good morning."
+        val today = LocalDate.now().toString()
+        // A "Good morning" greeting already fired this window (the engine fallback,
+        // or a duplicate alarm) — never double up. This is what keeps a morning to
+        // exactly ONE warm notification instead of a pile of "morning recovery" dupes.
+        if (DailyGreetingState.alreadyGreeted(context, today, "morning")) return
+        val greeting = if (name.isNotBlank()) context.getString(R.string.good_morning_name, name) else context.getString(R.string.good_morning_plain)
         val dataLine = when {
             recovery != null && energy != null -> "$recovery% recovered, $energy% energy."
             recovery != null -> "$recovery% recovered."
             else -> "A fresh day is waiting."
         }
         val close = MORNING_CLOSERS[dayOfYear() % MORNING_CLOSERS.size]
-        NotificationPoster.post(
+        val posted = NotificationPoster.post(
             context,
             NotificationDecision(
                 notify = true,
-                title = "☀️ Morning Check-in",
+                title = context.getString(R.string.notif_good_morning),
                 message = "$greeting $dataLine $close",
-                priority = "high",
+                priority = "normal",
                 reason = "morning"
             )
         )
+        if (posted) DailyGreetingState.markGreeted(context, today, "morning")
     }
 
     private fun postNight(context: Context, name: String, strain: Double?, steps: Long?) {
-        val greeting = if (name.isNotBlank()) "Good night, $name." else "Good night."
+        val today = LocalDate.now().toString()
+        // The engine's "wind down" (evening) and this night check-in share one daily
+        // slot — whichever fires first wins, so exactly ONE wind-down shows per night.
+        if (DailyGreetingState.alreadyGreeted(context, today, "night")) return
+
+        val greeting = if (name.isNotBlank()) context.getString(R.string.good_night_name, name) else context.getString(R.string.good_night_plain)
         val dataLine = buildString {
             append("Today: ")
             val parts = mutableListOf<String>()
@@ -75,16 +87,17 @@ class CheckInReceiver : BroadcastReceiver() {
             append(".")
         }
         val close = NIGHT_CLOSERS[dayOfYear() % NIGHT_CLOSERS.size]
-        NotificationPoster.post(
+        val posted = NotificationPoster.post(
             context,
             NotificationDecision(
                 notify = true,
-                title = "🌙 Night Check-in",
+                title = context.getString(R.string.notif_wind_down),
                 message = "$greeting $dataLine $close",
-                priority = "low",
+                priority = "normal",
                 reason = "night"
             )
         )
+        if (posted) DailyGreetingState.markGreeted(context, today, "night")
     }
 
     private fun dayOfYear(): Int = LocalDate.now().dayOfYear

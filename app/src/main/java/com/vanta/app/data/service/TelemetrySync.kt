@@ -96,14 +96,13 @@ object TelemetrySync {
         val corePrefs = context.getSharedPreferences("vanta_core", android.content.Context.MODE_PRIVATE)
         val coreNotified = corePrefs.getBoolean("core_activation_notified", false)
         if (!coreNotified && baseline.adaptiveCore != null) {
-            val days = baseline.adaptiveCore.totalDaysTracked
             val modeLabel = if (baseline.adaptiveCore.isTrainingMode) "Training Mode" else "Daily Mover Mode"
             NotificationPoster.post(
                 context,
                 com.vanta.app.data.notification.NotificationDecision(
                     notify = true,
                     title = "⚡ Adaptive Core is now active",
-                    message = "You've built $days days of data. Core is now calibrated to your patterns in $modeLabel — every score in Vanta is now personalised to you.",
+                    message = "Core is now calibrated to your patterns in $modeLabel — every score in Vanta is now personalised to you.",
                     reason = "core_activation",
                     priority = "high"
                 )

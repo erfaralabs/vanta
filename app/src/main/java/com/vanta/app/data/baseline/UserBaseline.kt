@@ -67,7 +67,7 @@ data class UserBaseline(
     val subtleStatusMessage: String
         get() = when {
             isLearningPhase -> "🌱 Building your personalized baseline — Day ${savedDaysCount.coerceAtLeast(1)} of 7 completed."
-            adaptiveCore != null -> "⚡ Adaptive Core active — learning from ${adaptiveCore.totalDaysTracked} days of your data."
+            adaptiveCore != null -> "⚡ Adaptive Core active."
             else -> "✨ Baseline active — calibrating toward Adaptive Core at 14 days."
         }
 }

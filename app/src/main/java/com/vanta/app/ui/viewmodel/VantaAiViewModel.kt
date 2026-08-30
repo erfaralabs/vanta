@@ -464,6 +464,10 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun leaveChatSession() {
+        // Cancel any in-flight generation BEFORE unloading the engine, so an active
+        // LiteRT stream is never interrupted by closing the engine mid-inference
+        // (which could leave the generation coroutine suspended / _isChatGenerating stuck).
+        stopGeneration()
         if (selectedChatProvider() == AiProvider.ON_DEVICE_LITERT) {
             onDeviceLlmManager.unloadEngine()
         }
@@ -669,6 +673,14 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
                 com.vanta.app.data.db.VantaDatabase.getInstance(getApplication())
                     .userProfileDao().getUserProfile()
             }.getOrNull()
+
+            // Warm the on-device model in the background (when it's the selected analysis
+            // provider and already downloaded) BEFORE the first analysis runs, so the model
+            // load overlaps the earlier init work and the first Home coach generation doesn't
+            // pay a cold ~2.4GB load + shader compile on the UI path.
+            if (selectedAnalysisProvider() == AiProvider.ON_DEVICE_LITERT) {
+                onDeviceLlmManager.preloadModelAsync()
+            }
 
             refreshBaselineAndHistory()
             runAnalysis()

@@ -103,4 +103,33 @@ class AdaptiveIntelligenceEngineTest {
         assertFalse(result!!.isTrainingMode)
         assertEquals(AdaptiveIntelligenceEngine.LoadStatus.DAILY_MOVER, result.loadStatus)
     }
+
+    @Test
+    fun `totalDaysTracked excludes the still-in-progress today`() {
+        val today = java.time.LocalDate.now()
+        val records = (1..16).map { i ->
+            makeRecord(today.minusDays(i.toLong()).toString(), strain = 12.0)
+        } + makeRecord(today.toString(), strain = 99.0) // today's partial day must not count
+
+        val result = AdaptiveIntelligenceEngine.compute(records)
+        assertNotNull(result)
+        assertEquals(16, result!!.totalDaysTracked)
+        // The 99-strain spike from the incomplete today must not skew ATL/CTL.
+        assertTrue("ATL must reflect completed days only (got ${result.atl})", result.atl < 13.0)
+        assertTrue("CTL must reflect completed days only (got ${result.ctl})", result.ctl < 13.0)
+    }
+
+    @Test
+    fun `duplicate dates are never double-counted`() {
+        val today = java.time.LocalDate.now()
+        val base = (1..16).map { i ->
+            makeRecord(today.minusDays(i.toLong()).toString(), strain = 12.0)
+        }
+        // Same dates re-inserted with slightly different metrics — must dedupe.
+        val dup = base + base.map { it.copy(steps = it.steps + 1) }
+
+        val result = AdaptiveIntelligenceEngine.compute(dup)
+        assertNotNull(result)
+        assertEquals(16, result!!.totalDaysTracked)
+    }
 }

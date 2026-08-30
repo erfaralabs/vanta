@@ -7,6 +7,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import androidx.core.content.ContextCompat
+import com.vanta.app.R
 import com.vanta.app.data.AiProvider
 import com.vanta.app.data.ai.CoachPromptSystem
 import com.vanta.app.data.DeterministicPhysiologyResult
@@ -98,21 +99,35 @@ class AiNotificationEngine(private val context: Context) {
         // Dedupe: same reason firing again within 60s (worker + foreground race).
         if (prefs.getLong("last_${event.reason}_time", 0L) > nowMs - 60_000L) return null
 
-        // 1. Check if we have a pre-generated AI notification draft from daily analysis (0MB background load)
-        val bufferedDraft = notificationBuffer.popDraft(event.reason, today)
-        val aiDecision = if (bufferedDraft != null) {
-            NotificationDecision(
-                notify = true,
-                title = bufferedDraft.title,
-                message = bufferedDraft.message,
-                priority = bufferedDraft.priority,
-                reason = event.reason
-            )
-        } else if (aiCount() < settings.aiLimitPerDay) {
-            generateWithAi(event)
-        } else null
+        // Cross-mechanism greeting dedupe: the scheduled warm check-in (CheckInReceiver)
+        // and this engine share one flag per greeting slot (DailyGreetingState), so a
+        // given "morning / afternoon / wind-down" greeting fires at most ONCE per day.
+        // Whichever mechanism claims the slot first wins and the other defers — this is
+        // what stops the "5 morning recovery notifications" pile-up.
+        if (DailyGreetingState.alreadyGreeted(context, today, event.reason)) return null
 
-        val decision = aiDecision ?: generateTemplate(event)
+        // Daily greetings are deterministic and warm (always present the user's name +
+        // real recovery/energy/strain data), so AI budget stays reserved for genuine
+        // events (workout, strain, milestone) and never a scheduled greeting.
+        val isGreeting = DailyGreetingState.slotForReason(event.reason) != null
+        var aiDecision: NotificationDecision? = null
+        val decision = if (isGreeting) {
+            generateTemplate(event)
+        } else {
+            val bufferedDraft = notificationBuffer.popDraft(event.reason, today)
+            aiDecision = if (bufferedDraft != null) {
+                NotificationDecision(
+                    notify = true,
+                    title = bufferedDraft.title,
+                    message = bufferedDraft.message,
+                    priority = bufferedDraft.priority,
+                    reason = event.reason
+                )
+            } else if (aiCount() < settings.aiLimitPerDay) {
+                generateWithAi(event)
+            } else null
+            aiDecision ?: generateTemplate(event)
+        }
 
         // Personalize the message body with the name collected during onboarding
         // (title stays clean). Name comes first and follows title-casing rules.
@@ -123,6 +138,10 @@ class AiNotificationEngine(private val context: Context) {
         val finalDecision = if (displayName.isNotBlank() && !decision.message.contains(name, ignoreCase = true)) {
             decision.copy(message = "$displayName, ${decision.message}")
         } else decision
+
+        // Claim this greeting slot now so a concurrent worker / the scheduled check-in
+        // doesn't also fire it today.
+        DailyGreetingState.markGreeted(context, today, event.reason)
 
         prefs.edit()
             .putLong("last_${event.reason}_time", nowMs)
@@ -162,13 +181,7 @@ class AiNotificationEngine(private val context: Context) {
             return base.copy(reason = "strain", priority = "high")
         }
 
-        // 3. Recovery changed by >= 10% (RHR-driven — gated by heartRate) — morning only,
-        //    so it never fires "Morning Recovery" in the evening.
-        if (settings.morningRecovery && settings.heartRate && isMorning && recoveryChangeFired(det.recovery)) {
-            return base.copy(reason = "recovery", priority = "normal")
-        }
-
-        // 4. Achievement / milestone.
+        // 3. Achievement / milestone.
         if (settings.achievement) {
             val streak = trainingStreak(records)
             if (streak in STREAK_MILESTONES && prefs.getInt("last_streak_milestone", 0) != streak) {
@@ -181,22 +194,23 @@ class AiNotificationEngine(private val context: Context) {
             }
         }
 
-        // 5. Morning recovery (once/day, morning only — not after 11:00).
+        // 4. Morning greeting — a warm, personalised "Good morning" with today's real
+        //    recovery/energy. Fires at most once/day (morningRecoveryFired) and shares a
+        //    daily flag with the scheduled 08:10 check-in (DailyGreetingState), so the two
+        //    never both fire — the cross-mechanism dedupe in evaluate() drops the dup.
         if (settings.morningRecovery && isMorning && morningRecoveryFired(det.recovery)) {
             return base.copy(reason = "recovery", priority = "normal")
         }
 
-        // 6. Dynamic Intraday WHOOP-style spontaneous check-ins (Midday, Afternoon, Evening)
-        if (settings.intradayNudges) {
-            if (middayPacingFired(det.recovery, det.strain)) {
-                return base.copy(reason = "midday", priority = "normal")
-            }
-            if (afternoonEnergyFired(det.energy, t.steps)) {
-                return base.copy(reason = "afternoon", priority = "normal")
-            }
-            if (eveningWindDownFired(det.strain, det.recovery)) {
-                return base.copy(reason = "evening", priority = "normal")
-            }
+        // 5. Afternoon greeting (once/day) — a warm "Good afternoon" with energy + steps.
+        if (settings.intradayNudges && afternoonEnergyFired(det.energy, t.steps)) {
+            return base.copy(reason = "afternoon", priority = "normal")
+        }
+
+        // 6. Evening wind-down (once/day) — shares a daily slot with the scheduled
+        //    21:30 night check-in, so exactly ONE "wind down" fires per evening.
+        if (settings.intradayNudges && eveningWindDownFired(det.strain, det.recovery)) {
+            return base.copy(reason = "evening", priority = "normal")
         }
 
         // 7. Weekly summary (every 7 days).
@@ -261,25 +275,6 @@ class AiNotificationEngine(private val context: Context) {
         return false
     }
 
-    private fun recoveryChangeFired(recovery: Int): Boolean {
-        val last = prefs.getInt("last_notified_recovery", -1)
-        val lastDate = prefs.getString("last_recovery_date", "")
-        // Seed today's baseline on first sighting so a stale cross-day value can
-        // never trigger a false "±10% change" (e.g. when morning recovery is off).
-        if (last < 0 || lastDate != today) {
-            prefs.edit()
-                .putInt("last_notified_recovery", recovery)
-                .putString("last_recovery_date", today)
-                .apply()
-            return false
-        }
-        if (abs(recovery - last) >= RECOVERY_DELTA) {
-            prefs.edit().putInt("last_notified_recovery", recovery).apply()
-            return true
-        }
-        return false
-    }
-
     private fun morningRecoveryFired(recovery: Int): Boolean {
         if (prefs.getString("last_morning_date", "") == today) return false
         val hour = LocalTime.now(ZoneId.systemDefault()).hour
@@ -292,22 +287,12 @@ class AiNotificationEngine(private val context: Context) {
         return true
     }
 
-    private fun middayPacingFired(recovery: Int, strain: Double): Boolean {
-        if (prefs.getString("last_midday_date", "") == today) return false
-        val now = LocalTime.now(ZoneId.systemDefault())
-        val jitterMinute = abs(daySeed).mod(40) // 0 to 39 minutes offset
-        val triggerTime = LocalTime.of(11, 30).plusMinutes(jitterMinute.toLong())
-        if (now.isBefore(triggerTime) || now.isAfter(LocalTime.of(14, 0))) return false
-        prefs.edit().putString("last_midday_date", today).apply()
-        return true
-    }
-
     private fun afternoonEnergyFired(energy: Int, steps: Long): Boolean {
         if (prefs.getString("last_afternoon_date", "") == today) return false
         val now = LocalTime.now(ZoneId.systemDefault())
         val jitterMinute = abs(daySeed * 7).mod(45) // 0 to 44 minutes offset
-        val triggerTime = LocalTime.of(14, 45).plusMinutes(jitterMinute.toLong())
-        if (now.isBefore(triggerTime) || now.isAfter(LocalTime.of(17, 30))) return false
+        val triggerTime = LocalTime.of(12, 0).plusMinutes(jitterMinute.toLong())
+        if (now.isBefore(triggerTime) || now.isAfter(LocalTime.of(18, 0))) return false
         prefs.edit().putString("last_afternoon_date", today).apply()
         return true
     }
@@ -475,18 +460,17 @@ class AiNotificationEngine(private val context: Context) {
             .getInt("steps_goal", 10000).coerceAtLeast(1000)
         val goalFmt = if (stepsGoal >= 1000) "%,d".format(stepsGoal) else "$stepsGoal"
         val title = when (e.reason) {
-            "recovery" -> "Morning Recovery"
+            "recovery" -> context.getString(R.string.notif_good_morning)
             "workout" -> "Workout Logged"
             "strain" -> "Strain Spike"
-            "midday" -> "Midday Pacing"
-            "afternoon" -> "Afternoon Check"
-            "evening" -> "Evening Wind-down"
+            "afternoon" -> context.getString(R.string.notif_good_afternoon)
+            "evening" -> context.getString(R.string.notif_wind_down)
             "achievement" -> if (e.streak > 0) "Milestone" else "${stepsGoal / 1000}k Steps"
             "weekly" -> "Weekly Summary"
             else -> "Goal Reached"
         }
         val salt = when (e.reason) {
-            "workout" -> 1; "strain" -> 2; "midday" -> 3; "afternoon" -> 4; "evening" -> 5; "achievement" -> 6; "weekly" -> 7; "goal" -> 8; else -> 0
+            "workout" -> 1; "strain" -> 2; "afternoon" -> 3; "evening" -> 4; "achievement" -> 5; "weekly" -> 6; "goal" -> 7; else -> 0
         }
         val variants = templateVariants(e)
         val message = variants[(daySeed + salt).mod(variants.size)]
@@ -501,25 +485,19 @@ class AiNotificationEngine(private val context: Context) {
         val goalFmt = if (stepsGoal >= 1000) "%,d".format(stepsGoal) else "$stepsGoal"
         return when (e.reason) {
         "recovery" -> listOf(
-            "🌅 ${e.recovery}% recovery to work with today — yesterday's load is absorbed and you're ready for more.",
-            "💪 Recovery's at ${e.recovery}% — your green light to train with real intent.",
-            "⚡ ${e.recovery}% recovered, ${e.energy}% in the tank. Keep today's session sharp and honest."
-        )
-        "midday" -> listOf(
-            if (e.recovery >= 65) "⚡ Midday window: ${e.recovery}% recovery is in your favor. High-readiness day to push strain."
-            else "⚖️ Midday check: strain is at ${"%.1f".format(e.strain)}. Keep your pacing steady and hydrated.",
-            "👟 ${e.steps} steps banked by midday. Clean progress through the first half of the day.",
-            "🔥 Optimal daylight window to get your primary session in before the afternoon."
+            "${e.recovery}% recovered, ${e.energy}% energy waiting. The day's ready — let's make it count.",
+            "${e.recovery}% recovery to work with today. Yesterday's load is absorbed; the body's ready for more.",
+            "${e.recovery}% recovered and ${e.energy}% in the tank. A strong start — keep today's session sharp and honest."
         )
         "afternoon" -> listOf(
-            "🔋 ${e.energy}% energy reserve holding with ${e.steps} steps so far. Steady afternoon momentum.",
-            "🚶 Afternoon movement check — ${e.steps} steps on the board. Room to build if you're training later.",
-            "⚡ Daily strain at ${"%.1f".format(e.strain)}/21. Solid physiological balance through the afternoon."
+            "${e.energy}% energy reserve holding with ${e.steps} steps on the board. Steady afternoon momentum.",
+            "Halfway through the day — ${e.steps} steps banked and ${e.energy}% energy left. Clean progress.",
+            "Daily strain at ${"%.1f".format(e.strain)}/21. Solid physiological balance through the afternoon."
         )
         "evening" -> listOf(
-            "🌙 Evening check: ${"%.1f".format(e.strain)} strain vs ${e.recovery}% morning recovery. Work is done — start winding down.",
-            "🍵 Daily strain locked at ${"%.1f".format(e.strain)}. Shift focus toward nutrition, hydration, and sleep.",
-            "🛋️ ${e.steps} total steps today. Rest and let the recovery cycle begin for tomorrow."
+            "Daily strain locked at ${"%.1f".format(e.strain)}/21 — the work's done, so start winding down.",
+            "Shift focus toward nutrition, hydration and sleep. The body rebuilds while you rest.",
+            "${e.steps} total steps today. Rest now and let the recovery cycle begin for tomorrow."
         )
         "workout" -> listOf(
             "🏋️ ${e.workoutMinutes} min of real work banked, strain at ${"%.1f".format(e.strain)}. Solid session.",
@@ -555,12 +533,11 @@ class AiNotificationEngine(private val context: Context) {
     }
 
     private fun reasonLabel(reason: String): String = when (reason) {
-        "recovery" -> "Morning recovery update"
+        "recovery" -> "Morning greeting"
         "workout" -> "Workout completed"
         "strain" -> "Significant strain increase"
-        "midday" -> "Midday training & pacing nudge"
-        "afternoon" -> "Afternoon energy & movement check"
-        "evening" -> "Evening recovery & wind-down prep"
+        "afternoon" -> "Afternoon greeting"
+        "evening" -> "Evening wind-down"
         "achievement" -> "New achievement or milestone"
         "weekly" -> "Weekly summary"
         else -> "Goal reached"

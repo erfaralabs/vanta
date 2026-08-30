@@ -221,17 +221,20 @@ fun AnalyticsScreen(
 
                         Spacer(Modifier.height(8.dp))
 
-                        // Progress Bar for Learning Phase
-                        val progressFraction = (userBaseline.savedDaysCount / 7f).coerceIn(0f, 1f)
-                        LinearProgressIndicator(
-                            progress = { progressFraction },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = if (userBaseline.isLearningPhase) EnergyAmber else RecoveryGreen,
-                            trackColor = Color.White.copy(alpha = 0.1f)
-                        )
+                        // Progress Bar only while the 7-day baseline is still being built.
+                        // Hidden once calibration is complete for a cleaner card.
+                        if (userBaseline.isLearningPhase) {
+                            val progressFraction = (userBaseline.savedDaysCount / 7f).coerceIn(0f, 1f)
+                            LinearProgressIndicator(
+                                progress = { progressFraction },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = EnergyAmber,
+                                trackColor = Color.White.copy(alpha = 0.1f)
+                            )
+                        }
 
                         Spacer(Modifier.height(10.dp))
 

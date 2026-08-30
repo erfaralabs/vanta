@@ -80,7 +80,13 @@ object AdaptiveIntelligenceEngine {
      * Returns null if insufficient data (< MIN_DAYS_FOR_CORE real days).
      */
     fun compute(records: List<DailyMetricRecord>): AdaptiveCoreResult? {
+        // Only COMPLETED archived days count toward Adaptive Core. The still-in-progress
+        // "today" is not a tracked day yet, and a date is never counted twice — otherwise
+        // day-progress / core-activation would run ahead of real history ("extra days").
+        val today = java.time.LocalDate.now(java.time.ZoneId.systemDefault()).toString()
         val real = records.filter { it.hasRealData() }
+            .filter { it.date < today }
+            .distinctBy { it.date }
         if (real.size < MIN_DAYS_FOR_CORE) return null
 
         // Sort oldest-first for EWMA calculation

@@ -28,7 +28,7 @@ object PhysiologyInsightPromptSystem {
      * of pretending to coach with a canned breakdown.
      */
     const val OFFLINE_MESSAGE =
-        "Vanta Coach requires an active AI connection. Please check your network connection or configure your API key in Settings."
+        "Vanta Coach requires an active AI connection. No internet connection detected — please check your network, or configure your API key in Settings."
 
     val CLOUD_SYSTEM_PROMPT: String =
         """

@@ -31,6 +31,16 @@ data class BioAgeResult(
  */
 object BiologicalAgeEngine {
 
+    /**
+     * Trend comparison window for Fitness Age: prefer a 30-day baseline, fall back
+     * to 15 days, and return 0 (no comparison) when neither is available.
+     */
+    internal fun trendWindowDays(historySize: Int): Int = when {
+        historySize >= 30 -> 30
+        historySize >= 15 -> 15
+        else -> 0
+    }
+
     fun compute(
         records: List<DailyMetricRecord>,
         chronologicalAge: Int,
@@ -39,9 +49,15 @@ object BiologicalAgeEngine {
         history30d: List<Double> = emptyList(),
         profile: UserProfileRecord? = null
     ): BioAgeResult? {
-        if (core == null || records.size < 14) return null
+        // Only completed, distinct archived days count toward Fitness Age — never the
+        // still-in-progress today or a repeated date (prevents "extra days").
+        val today = java.time.LocalDate.now(java.time.ZoneId.systemDefault()).toString()
+        val archived = records.filter { it.hasRealData() }
+            .filter { it.date < today }
+            .distinctBy { it.date }
+        if (core == null || archived.size < 14) return null
 
-        val sortedDesc = records.filter { it.hasRealData() }.sortedByDescending { it.date }
+        val sortedDesc = archived.sortedByDescending { it.date }
         val recent14 = sortedDesc.take(14)
         val factors = mutableListOf<BioAgeFactor>()
         var ageAdjustment = 0.0
@@ -169,15 +185,17 @@ object BiologicalAgeEngine {
         }
 
         // 30-day trend delta
-        val thirtyDayDelta = if (history30d.size >= 7) {
-            val pastAvg = history30d.takeLast(7).average()
-            displayedAge - pastAvg
+        // Trend comparison: prefer a 30-day baseline, fall back to the last 15 days,
+        // and if neither is available, don't show a comparison at all.
+        val windowDays = trendWindowDays(history30d.size)
+        val thirtyDayDelta = if (windowDays > 0) {
+            displayedAge - history30d.take(windowDays).average()
         } else null
 
         val confidence = when {
-            records.size >= 90 -> "High confidence"
-            records.size >= 60 -> "Medium confidence"
-            records.size >= 30 -> "Low confidence"
+            archived.size >= 90 -> "High confidence"
+            archived.size >= 60 -> "Medium confidence"
+            archived.size >= 30 -> "Low confidence"
             else -> "Preliminary"
         }
 

@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,7 +31,7 @@ import com.vanta.app.ui.theme.*
 import java.util.Calendar
 
 private data class TimeSlot(
-    val greeting: String,
+    val greetingRes: Int,
     val startColor: Color,
     val endColor: Color,
     val dateString: String,
@@ -137,10 +138,10 @@ fun HeroSection(
         val dateString = "$dayOfWeek, $dayOfMonth $month $year"
 
         val timeSlot = when (hour) {
-            in 5..10  -> TimeSlot(greeting = "Good Morning", startColor = MorningStart, endColor = MorningEnd, dateString = dateString)
-            in 11..16 -> TimeSlot(greeting = "Good Afternoon", startColor = AfternoonStart, endColor = AfternoonEnd, dateString = dateString)
-            in 17..20 -> TimeSlot(greeting = "Good Evening", startColor = EveningStart, endColor = EveningEnd, dateString = dateString)
-            else       -> TimeSlot(greeting = "Good Night", startColor = NightStart, endColor = NightEnd, dateString = dateString)
+            in 5..10  -> TimeSlot(greetingRes = R.string.good_morning, startColor = MorningStart, endColor = MorningEnd, dateString = dateString)
+            in 11..16 -> TimeSlot(greetingRes = R.string.good_afternoon, startColor = AfternoonStart, endColor = AfternoonEnd, dateString = dateString)
+            in 17..20 -> TimeSlot(greetingRes = R.string.good_evening, startColor = EveningStart, endColor = EveningEnd, dateString = dateString)
+            else       -> TimeSlot(greetingRes = R.string.good_night, startColor = NightStart, endColor = NightEnd, dateString = dateString)
         }
         Pair(timeSlot, hour)
     }
@@ -251,7 +252,7 @@ fun HeroSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text  = "${slot.greeting},",
+                text  = "${stringResource(slot.greetingRes)},",
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Medium

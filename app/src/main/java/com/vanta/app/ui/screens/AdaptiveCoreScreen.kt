@@ -139,7 +139,7 @@ fun AdaptiveCoreScreen(
                     ) {
                         Text(
                             text = if (core != null) "VANTIX ONLINE"
-                                   else "CALIBRATING · DAY $daysTracked OF 14",
+                                   else "CALIBRATING · DAY ${daysTracked.coerceAtLeast(1)} OF 14",
                             color = if (core != null) NeonCyan else EnergyAmber,
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.ExtraBold,
@@ -156,15 +156,19 @@ fun AdaptiveCoreScreen(
 
                     Spacer(Modifier.height(10.dp))
 
-                    LinearProgressIndicator(
-                        progress = { animatedProgress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(5.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                        color = if (core != null) NeonCyan else EnergyAmber,
-                        trackColor = Color.White.copy(alpha = 0.08f)
-                    )
+                    // Progress bar only while calibrating; hidden once VANTIX is online
+                    // (a full / redundant bar on an "ONLINE" card looks unfinished).
+                    if (core == null) {
+                        LinearProgressIndicator(
+                            progress = { animatedProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = EnergyAmber,
+                            trackColor = Color.White.copy(alpha = 0.08f)
+                        )
+                    }
 
                     Spacer(Modifier.height(12.dp))
 
@@ -621,6 +625,33 @@ fun AdaptiveCoreScreen(
                     }
                     Spacer(Modifier.height(20.dp))
                 }
+            }
+        }
+
+        // ── Health & wellness disclaimer (estimation, not medical advice) ──────
+        item(key = "disclaimer") {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 4.dp, bottom = 8.dp)
+            ) {
+                Text(
+                    text = "DISCLAIMER",
+                    color = TextTertiary,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.4.sp
+                    )
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Vanta's Strain, Recovery, Energy, Fitness Age and training-load metrics (ATL, CTL, TSB) are estimates for general wellness and training guidance only. They are not medical advice — not a diagnosis, treatment, or substitute for professional medical care. Always consult a qualified healthcare provider before making decisions about your health, exercise, or recovery. If you have a medical condition or experience unusual symptoms, stop and seek professional advice.",
+                    color = TextTertiary,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        lineHeight = 17.sp
+                    )
+                )
             }
         }
     }

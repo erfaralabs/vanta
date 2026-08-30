@@ -52,7 +52,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Completely release and unload on-device LLM model & GPU memory when app is minimized or backgrounded
-        com.vanta.app.data.ai.OnDeviceLlmManager.getInstance(applicationContext).unloadEngine()
+        // Release the on-device model only under genuine low-memory pressure, NOT on every
+        // background. Evicting here reloads ~2.4GB + recompiles shaders on each return, which
+        // is a primary reason the Home coach feels slow after a quick app switch or lock.
+        // maybeReleaseUnderMemoryPressure() keeps the engine resident for a grace period and
+        // only unloads when free memory is critically low (see OnDeviceLlmManager).
+        com.vanta.app.data.ai.OnDeviceLlmManager.getInstance(applicationContext).maybeReleaseUnderMemoryPressure()
     }
 }

@@ -479,6 +479,10 @@ class VantaGemmaEngine(private val context: Context) {
             val onDevice = com.vanta.app.data.ai.OnDeviceLlmManager.getInstance(context)
             if (onDevice.isModelDownloaded()) {
                 val result = onDevice.generate(systemPrompt, userPrompt)
+                // Safe + guarded release point: OnDeviceLlmManager keeps the model resident
+                // for at least RESIDENT_MIN_MS after load and only evicts when free memory
+                // is under RELEASE_THRESHOLD_MB, so this never reloads the ~2.4GB model on
+                // consecutive Home coach refreshes (the original load/evict thrash).
                 onDevice.maybeReleaseUnderMemoryPressure()
                 return result
             } else {

@@ -21,4 +21,17 @@
     <string name="energy_template_ready">Energy is steady at %1$d%%, right around your average of %2$d%%.</string>
     <string name="energy_template_moderate">Energy sits at %1$d%% (%2$d%% below baseline). Keep your output measured.</string>
     <string name="energy_template_low">Energy is low at %1$d%%. Focus on light movement and active restoration.</string>
+
+    <!-- Localized greetings -->
+    <string name="good_morning">Good Morning</string>
+    <string name="good_afternoon">Good Afternoon</string>
+    <string name="good_evening">Good Evening</string>
+    <string name="good_night">Good Night</string>
+    <string name="good_morning_name">Good morning, %1$s.</string>
+    <string name="good_morning_plain">Good morning.</string>
+    <string name="good_night_name">Good night, %1$s.</string>
+    <string name="good_night_plain">Good night.</string>
+    <string name="notif_good_morning">☀️ Good morning</string>
+    <string name="notif_good_afternoon">🌤️ Good afternoon</string>
+    <string name="notif_wind_down">🌙 Wind down</string>
 </resources>

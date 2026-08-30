@@ -59,7 +59,13 @@ class AdaptiveBaselineManager(private val context: Context) {
 
     companion object {
         internal fun computeBaselineFromRecords(records: List<DailyMetricRecord>): UserBaseline {
+        // Count only COMPLETED archived days and never double-count a date, so the
+        // "N days archived" / baseline progress can't run ahead of real history
+        // (today is still in-progress and must not count as a full tracked day).
+        val today = java.time.LocalDate.now(java.time.ZoneId.systemDefault()).toString()
         val real = records.filter { it.hasRealData() }
+            .filter { it.date < today }
+            .distinctBy { it.date }
         val count = real.size
         val isLearningPhase = count < 7
 

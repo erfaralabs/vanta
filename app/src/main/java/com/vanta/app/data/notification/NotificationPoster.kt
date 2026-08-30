@@ -96,12 +96,15 @@ object NotificationPoster {
 
     /** Quiet scheduled rituals (check-in channel) vs. loud coach alerts (alerts channel). */
     private fun channelIdFor(reason: String): String = when (reason) {
-        "morning", "night", "midday", "afternoon", "evening" -> CHANNEL_ID_CHECKIN
+        // Daily greetings (recovery = the engine's "Good morning", plus the scheduled
+        // check-ins) belong on the calm, silent check-in channel — WHOOP-style, not
+        // shouty. Real events (workout, strain, milestone, weekly, goal) stay loud.
+        "recovery", "morning", "night", "midday", "afternoon", "evening" -> CHANNEL_ID_CHECKIN
         else -> CHANNEL_ID
     }
 
     private fun categoryFor(reason: String): String = when (reason) {
-        "morning", "night", "midday", "afternoon", "evening" -> NotificationCompat.CATEGORY_STATUS
+        "recovery", "morning", "night", "midday", "afternoon", "evening" -> NotificationCompat.CATEGORY_STATUS
         else -> NotificationCompat.CATEGORY_RECOMMENDATION
     }
 

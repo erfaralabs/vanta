@@ -722,7 +722,7 @@ class HealthConnectManager(private val context: Context) {
                     timeRangeFilter = TimeRangeFilter.between(start, now)
                 )
             )
-            response.records.map { record ->
+            response.records.filter { it.isGenuineWorkout() }.map { record ->
                 val durationMin = ChronoUnit.MINUTES.between(record.startTime, record.endTime).toInt()
 
                 val calories = try {
