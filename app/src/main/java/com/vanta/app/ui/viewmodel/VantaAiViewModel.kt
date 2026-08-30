@@ -460,11 +460,6 @@ class VantaAiViewModel(application: Application) : AndroidViewModel(application)
         }
         if (selectedChatProvider() == AiProvider.ON_DEVICE_LITERT) {
             onDeviceLlmManager.preloadModelAsync()
-            // Preload the llama.cpp weights in the background so the first on-device reply
-            // isn't blocked by a ~1.1 GB load from disk.
-            viewModelScope.launch(Dispatchers.IO) {
-                runCatching { com.vanta.app.data.ai.VantaLllamaEngine(getApplication()).init() }
-            }
         }
     }
 

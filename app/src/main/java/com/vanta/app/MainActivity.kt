@@ -54,7 +54,5 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         // Completely release and unload on-device LLM model & GPU memory when app is minimized or backgrounded
         com.vanta.app.data.ai.OnDeviceLlmManager.getInstance(applicationContext).unloadEngine()
-        // Also drop the llama.cpp weights so we never pin ~1.5 GB while idle in the background.
-        runCatching { com.vanta.app.data.ai.VantaLllamaEngine(applicationContext).unload() }
     }
 }

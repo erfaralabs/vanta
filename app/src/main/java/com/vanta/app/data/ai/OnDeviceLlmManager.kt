@@ -362,25 +362,6 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
             return@callbackFlow
         }
 
-        // Whole-app on-device path runs through llama.cpp when the GGUF is present.
-        val llama = com.vanta.app.data.ai.VantaLllamaEngine(context)
-        if (llama.isAvailable()) {
-            val effSystem = if (imageBase64 != null)
-                "$system\n[Image attached — this on-device model is text-only; ask them to describe it]"
-            else system
-            if (llama.init()) {
-                val text = llama.generate(effSystem, user)
-                llama.release()
-                val words = text.split(" ")
-                for (i in words.indices) {
-                    trySend(if (i == 0) words[i] else " " + words[i])
-                    kotlinx.coroutines.delay(12)
-                }
-            }
-            close()
-            return@callbackFlow
-        }
-
         val prompt = "$system\n\n$user"
 
         val ready = try {
@@ -455,14 +436,6 @@ class OnDeviceLlmManager private constructor(private val context: Context) {
      */
     suspend fun generate(system: String, user: String, imageBase64: String? = null): String? = withContext(Dispatchers.IO) {
         if (!isModelDownloaded()) return@withContext null
-        // Whole-app on-device model runs through llama.cpp (Vulkan) — one GGUF.
-        val llama = com.vanta.app.data.ai.VantaLllamaEngine(context)
-        if (llama.isAvailable()) {
-            val effSystem = if (imageBase64 != null)
-                "$system\n[Image attached — this on-device model is text-only; ask them to describe it]"
-            else system
-            return@withContext if (llama.init()) llama.generate(effSystem, user).also { llama.release() } else null
-        }
         val prompt = "$system\n\n$user"
         val ready = ensureEngineLoaded()
         var currentEngine = engine

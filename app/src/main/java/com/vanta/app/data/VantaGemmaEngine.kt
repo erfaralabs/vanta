@@ -1815,24 +1815,6 @@ class VantaGemmaEngine(private val context: Context) {
         val systemPrompt = buildChatSystemPrompt(effectiveProvider == AiProvider.ON_DEVICE_LITERT, context, det, telemetry, baseline, profile, history, weatherLine)
         val fullConversation = com.vanta.app.data.ai.CoachChatPromptSystem.buildConversationPrompt(historyMessages, userQuery)
 
-        // Chat-only llama.cpp engine — used when on-device chat is selected AND the
-        // GGUF model is downloaded. Faster than MediaPipe on TTFT/throughput; gracefully
-        // falls back to LiteRT-LM / cloud if the native lib or model is missing.
-        val llama = com.vanta.app.data.ai.VantaLllamaEngine(context)
-        if (effectiveProvider == AiProvider.ON_DEVICE_LITERT && llama.isAvailable()) {
-            if (llama.init()) {
-                try {
-                    // Real per-token streaming from the GPU — first token arrives as soon
-                    // as the prompt finishes decoding (true TTFT, not a word-split delay).
-                    llama.generateStreaming(systemPrompt, fullConversation, 120).collect { piece ->
-                        if (piece.isNotEmpty()) emit(piece)
-                    }
-                } finally {
-                    llama.release()
-                }
-            }
-            return@flow
-        }
 
         if (effectiveProvider == AiProvider.ON_DEVICE_LITERT && isOnDeviceReady) {
             var prefixStripped = false
