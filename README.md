@@ -101,6 +101,72 @@ Pulls data directly through **Google Health Connect** — including steps, heart
 
 ---
 
+## ☁️ Supabase Cloud Backup (Self-Hosted Sync)
+
+VANTA can encrypt and back up your on-device health database to **your own Supabase project** so you can restore it on a new phone — without paying for a hosted backend. It uses the **public `anon` key only** and **never** the `service_role` key (the app rejects `service_role`/secret keys). Backup data is encrypted locally with **AES-256-GCM** backed by the Android KeyStore before it is uploaded.
+
+> 🔐 **Privacy:** All health data stays on your device by default. Cloud sync is **opt-in** — nothing is sent anywhere until you configure Supabase in Settings.
+
+### What you need
+
+| Item | Where to find it |
+|---|---|
+| **Project URL** | Supabase Dashboard → **Settings → API → Project URL** (`https://<your-project-ref>.supabase.co`) |
+| **Anon public key** | Supabase Dashboard → **Settings → API → Project API keys → `anon` `public`** (`eyJhbGciOi...`) |
+
+> ⚠️ Use the **`anon` (public)** key only. Do **not** paste the `service_role`/secret key — the app will reject it.
+
+### 1. Create the backup table
+
+Supabase Dashboard → **SQL Editor → New query**, paste this and click **Run**:
+
+```sql
+CREATE TABLE IF NOT EXISTS vanta_backups (
+  id            TEXT PRIMARY KEY,
+  backup_data   TEXT NOT NULL,
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  records_count INT DEFAULT 0,
+  user_name     TEXT,
+  schema_version INT DEFAULT 7
+);
+
+ALTER TABLE vanta_backups ENABLE ROW LEVEL SECURITY;
+
+-- Allow the anon (public) key to read/write this single-row backup table.
+CREATE POLICY "Allow anon full access"
+  ON vanta_backups
+  FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+```
+
+> 💡 This is the **exact** table + policy the app uses. If the table already exists you can safely skip the `CREATE TABLE` part.
+
+### 2. Connect in the app
+
+1. Open **Settings → Supabase Cloud Sync**.
+2. Paste your **Project URL** and **anon public key**.
+3. Tap **Test connection** — it should say *Connected ✓*.
+4. Turn on **Auto backup** (Daily, Every 3 days, Weekly, or Off) and tap **Back up now**.
+
+### 3. Restore
+
+* **In the app:** Settings → Supabase Cloud Sync → **Restore from backup**.
+* **During onboarding:** choose **Restore from Supabase** and enter the same URL + key.
+
+### Table reference
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `TEXT PRIMARY KEY` | Always `vanta_user_backup` — one row per project |
+| `backup_data` | `TEXT NOT NULL` | Base64-encoded, locally-encrypted `.vanta` payload |
+| `updated_at` | `TIMESTAMPTZ` | Set on every upload |
+| `records_count` | `INT` | Days of metrics in the backup |
+| `user_name` | `TEXT` | Display name |
+| `schema_version` | `INT` | Backup format version |
+
+---
+
+
 ## 🛠️ How to Build & Run
 
 ### Requirements
